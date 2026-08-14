@@ -1,0 +1,73 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <meta name="color-scheme" content="light dark" />
+  <title>HERDR · Agent 运行中心</title>
+  <link rel="stylesheet" href="/styles.css" />
+</head>
+<body>
+  <div class="app-shell">
+    <header class="topbar">
+      <div class="brand">
+        <span class="mark" aria-hidden="true">
+          <i></i><i></i><i></i><i></i>
+        </span>
+        <div class="brand-copy">
+          <p class="eyebrow">HERDR / MISSION CONTROL</p>
+          <h1>Agent 运行中心</h1>
+        </div>
+      </div>
+
+      <div class="stats" id="stats"></div>
+
+      <div class="live-panel">
+        <div class="live-state"><span class="pulse" id="pulse"></span>LIVE</div>
+        <time id="clock">--:--:--</time>
+      </div>
+    </header>
+
+    <section class="toolbar">
+      <div class="filters" id="filters"></div>
+      <div class="toolbar-right">
+        <span class="sync-note">每 1.5 秒同步</span>
+        <button id="theme-toggle">切深色</button>
+        <div class="modes" role="tablist">
+          <button data-view="board" class="on">状态看板</button>
+          <button data-view="spaces">工作区</button>
+          <button data-view="windows">窗口</button>
+        </div>
+      </div>
+    </section>
+
+    <main id="stage" class="stage board"></main>
+
+    <section class="composer" id="composer" hidden>
+      <div class="composer-inner">
+        <div class="composer-head">
+          <span class="composer-target" id="composer-target">未选择 Agent</span>
+          <button class="composer-close" id="composer-close" title="关闭 (Esc)">✕</button>
+        </div>
+        <div class="composer-row">
+          <textarea id="composer-input" rows="1"
+            placeholder="输入回复… Enter 发送 / Shift+Enter 换行 / Esc 关闭"></textarea>
+          <button id="composer-send" class="send">发送</button>
+        </div>
+        <div class="composer-output" id="composer-output" hidden>
+          <div class="composer-output-head" id="composer-output-head">最近输出</div>
+          <div class="composer-output-text" id="composer-output-text"></div>
+        </div>
+        <p class="composer-hint" id="composer-hint">点击 Agent 卡片定位到 Herdr · 点卡片上的 ↩ 图标打开回复</p>
+      </div>
+    </section>
+
+    <footer>
+      <span class="footer-hint"><kbd>CLICK</kbd> 在 Herdr 中定位该 Pane · <kbd>↩</kbd> 展开回复输入</span>
+      <span id="meta"></span>
+    </footer>
+  </div>
+  <script src="/md.js"></script>
+  <script src="/app.js"></script>
+</body>
+</html>
