@@ -1,6 +1,6 @@
 # herdr-portal
 
-![banner](assets/banner.png)
+![HERDR Portal · 基于真实脱敏界面的 README 封面](assets/banner.png)
 
 **HERDR 全局看板** — 把当前 Herdr 会话里的全部 workspace / tab / pane 聚合成一块实时看板。一个插件，两种形态：
 
