@@ -159,8 +159,8 @@ button, .chip {
 }
 button:hover, .chip:hover { color: var(--text); background: color-mix(in srgb, var(--text) 5%, transparent); }
 button.on, .chip.on { color: var(--text); border-color: var(--border-strong); background: var(--surface-2); }
-.modes { padding: 3px; border: 1px solid var(--line); border-radius: 10px; background: var(--bg); }
-.modes button { padding: 7px 11px; }
+.modes, .themes { padding: 3px; border: 1px solid var(--line); border-radius: 10px; background: var(--bg); }
+.modes button, .themes button { padding: 7px 11px; }
 #theme-toggle { color: var(--text-2); }
 
 .stage { min-height: 0; padding: 16px 20px; overflow: auto; }
@@ -513,6 +513,95 @@ body[data-theme="dark"] {
 }
 body[data-theme="dark"] .mark { background: linear-gradient(145deg, #1a2029, #0e1117); }
 body[data-theme="dark"] .send { color: #0b0e13; }
+
+/* 霓虹主题（源自 GrsAI banner：近黑蓝底 + 红/蓝/绿发光卡片 + 青色辉光） */
+body[data-theme="neon"] {
+  --bg: #05080c;
+  --surface: #0a0e14;
+  --surface-2: #0e141d;
+  --surface-hover: #121a26;
+  --line: #1a2432;
+  --line-soft: rgba(148, 180, 220, 0.10);
+  --border-strong: #223042;
+  --text: #e8f1fb;
+  --text-2: #9fb4cc;
+  --text-3: #5c6f88;
+  --blue: #3f8cff;
+  --blue-soft: rgba(63, 140, 255, 0.16);
+  --amber: #f5b04d;
+  --amber-soft: rgba(245, 176, 77, 0.15);
+  --green: #2fbf71;
+  --green-soft: rgba(47, 191, 113, 0.15);
+  --rose: #ff4d5e;
+  --rose-soft: rgba(255, 77, 94, 0.15);
+  --violet: #8b5cf6;
+  --violet-soft: rgba(139, 92, 246, 0.15);
+  --shell-glow: rgba(34, 211, 238, 0.10);
+  --glow-cyan: #22d3ee;
+  --shadow-card: 0 0 0 1px rgba(63, 140, 255, 0.05), 0 10px 30px rgba(0, 0, 0, 0.55);
+}
+body[data-theme="neon"] .app-shell {
+  background:
+    radial-gradient(1000px 500px at 50% -260px, var(--shell-glow), transparent 72%),
+    linear-gradient(rgba(63, 140, 255, 0.035) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(63, 140, 255, 0.035) 1px, transparent 1px),
+    var(--bg);
+  background-size: auto, 44px 44px, 44px 44px, auto;
+}
+body[data-theme="neon"] .topbar,
+body[data-theme="neon"] .toolbar,
+body[data-theme="neon"] footer,
+body[data-theme="neon"] .composer {
+  background: color-mix(in srgb, var(--bg) 88%, transparent);
+}
+body[data-theme="neon"] .mark { background: linear-gradient(145deg, #101826, #070b11); border-color: #233246; }
+body[data-theme="neon"] .mark i { box-shadow: 0 0 8px var(--blue); }
+body[data-theme="neon"] .eyebrow { color: var(--glow-cyan); }
+body[data-theme="neon"] h1 { text-shadow: 0 0 18px rgba(63, 140, 255, 0.25); }
+body[data-theme="neon"] .live-state { text-shadow: 0 0 10px rgba(47, 191, 113, 0.55); }
+body[data-theme="neon"] .stat {
+  border-color: color-mix(in srgb, var(--text) 9%, transparent);
+  background: rgba(10, 14, 20, 0.85);
+}
+body[data-theme="neon"] .stat b { text-shadow: 0 0 10px currentColor; }
+body[data-theme="neon"] .col {
+  border-color: color-mix(in srgb, var(--tone) 26%, #16202e);
+  background: linear-gradient(180deg, color-mix(in srgb, var(--tone-soft) 55%, var(--surface)), var(--surface));
+  box-shadow:
+    inset 0 0 46px -22px var(--tone-soft),
+    0 0 30px -14px color-mix(in srgb, var(--tone) 30%, transparent);
+}
+body[data-theme="neon"] .col-head strong::before { box-shadow: 0 0 12px var(--tone); }
+body[data-theme="neon"] .card {
+  border-color: color-mix(in srgb, var(--card-tone) 30%, #1a2432);
+  background: linear-gradient(160deg, #0e141d, #0a0f16);
+  box-shadow: 0 0 18px -8px color-mix(in srgb, var(--card-tone) 42%, transparent);
+}
+body[data-theme="neon"] .card:hover {
+  border-color: color-mix(in srgb, var(--card-tone) 60%, #1a2432);
+  box-shadow: 0 0 26px -6px color-mix(in srgb, var(--card-tone) 55%, transparent);
+}
+body[data-theme="neon"] .card.focused {
+  border-color: var(--card-tone);
+  box-shadow:
+    0 0 0 1px color-mix(in srgb, var(--card-tone) 35%, transparent),
+    0 0 24px -6px color-mix(in srgb, var(--card-tone) 50%, transparent);
+}
+body[data-theme="neon"] .badge {
+  color: var(--card-tone);
+  border-color: color-mix(in srgb, var(--card-tone) 42%, transparent);
+  background: transparent;
+}
+body[data-theme="neon"] .card-state::before { box-shadow: 0 0 8px var(--card-tone); }
+body[data-theme="neon"] .activity {
+  border-color: color-mix(in srgb, var(--card-tone) 30%, #1a2432);
+  background: color-mix(in srgb, var(--card-tone) 9%, #070b11);
+}
+body[data-theme="neon"] .activity-phase { text-shadow: 0 0 10px color-mix(in srgb, var(--card-tone) 70%, transparent); }
+body[data-theme="neon"] textarea { background: #0c121a; border-color: #223042; }
+body[data-theme="neon"] .composer-output { background: #0a0f16; }
+body[data-theme="neon"] .send { color: #05080c; box-shadow: 0 0 18px -4px var(--blue); }
+body[data-theme="neon"] kbd { background: #0c121a; border-color: #223042; }
 
 @media (max-width: 1180px) {
   .topbar { grid-template-columns: minmax(230px, 1fr) auto; }

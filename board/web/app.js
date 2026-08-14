@@ -431,15 +431,18 @@ $("composer-send").addEventListener("click", sendMessage);
 
 /* ---------- 主题 ---------- */
 
-const THEME_KEY = "herdr-portal-theme";
+const THEME_KEY = "herdr-portal-theme-v2";
 function applyTheme(theme) {
   document.body.dataset.theme = theme;
   localStorage.setItem(THEME_KEY, theme);
-  $("theme-toggle").textContent = theme === "dark" ? "切浅色" : "切深色";
+  document.querySelectorAll(".themes button").forEach((el) => {
+    el.classList.toggle("on", el.dataset.theme === theme);
+  });
 }
-applyTheme(localStorage.getItem(THEME_KEY) || "light");
-$("theme-toggle").addEventListener("click", () => {
-  applyTheme(document.body.dataset.theme === "dark" ? "light" : "dark");
+applyTheme(localStorage.getItem(THEME_KEY) || "neon");
+document.querySelector(".themes").addEventListener("click", (event) => {
+  const button = event.target.closest("button[data-theme]");
+  if (button) applyTheme(button.dataset.theme);
 });
 
 /* ---------- 启动 ---------- */

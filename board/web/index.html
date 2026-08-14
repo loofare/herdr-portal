@@ -32,7 +32,11 @@
       <div class="filters" id="filters"></div>
       <div class="toolbar-right">
         <span class="sync-note">每 1.5 秒同步</span>
-        <button id="theme-toggle">切深色</button>
+        <div class="themes" role="tablist">
+          <button data-theme="light">浅色</button>
+          <button data-theme="dark">深色</button>
+          <button data-theme="neon">霓虹</button>
+        </div>
         <div class="modes" role="tablist">
           <button data-view="board" class="on">状态看板</button>
           <button data-view="spaces">工作区</button>
