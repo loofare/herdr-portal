@@ -5,13 +5,13 @@
 **HERDR 全局看板** — 把当前 Herdr 会话里的全部 workspace / tab / pane 聚合成一块实时看板。一个插件，两种形态：
 
 - **TUI 看板**（`prefix+a`）：Mission Control 风格，Agent 三列 + 窗口独立视图，回车直达会话
-- **网页大屏**（`prefix+shift+a`）：霓虹 / 浅色 / 深色三主题，结构化进展，点卡片定位 Herdr 并弹终端到前台、网页端直接回复 Agent、最近输出 Markdown 渲染
+- **网页大屏**（`prefix+shift+a`）：指挥 / 霓虹 / 浅色 / 深色四主题，结构化进展，点卡片定位 Herdr 并弹终端到前台、网页端直接回复 Agent、最近输出 Markdown 渲染
 
 ![herdr 0.7+](https://img.shields.io/badge/herdr-0.7%2B-8a2be2) ![platforms](https://img.shields.io/badge/platforms-macOS%20%E2%80%A2%20Linux-informational) ![license](https://img.shields.io/badge/license-MIT-blue) ![python](https://img.shields.io/badge/python-3.9%2B-orange)
 
 ## 预览
 
-**网页看板**（默认霓虹主题）：待确认 / 执行中 / 已就绪三列（待确认列为空时自动隐藏），每张卡片展示 Agent 类型、Pane 标题、当前阶段与执行标题。
+**网页看板**（默认指挥主题）：复刻 Mission Control 参考图的左侧命令栏、系统状态顶栏、红/蓝/绿状态列与终端状态条；待确认列为空时仍会自动隐藏。
 
 ![web board](assets/web-board.png)
 
@@ -23,7 +23,7 @@
 
 ![web windows](assets/web-windows.png)
 
-**TUI 看板**：同样三列布局、动态待确认列、虚拟滚动条、选中详情栏展示最近输出摘要。
+**TUI 看板**（真实 TUI 渲染 · 脱敏演示数据）：图中待确认为空，因此自动收起为「执行中 / 已就绪」两列；保留真实选中态、详情栏与快捷键提示。
 
 ![tui board](assets/tui-board.png)
 
@@ -92,7 +92,7 @@ description = "open web portal"
 | 点击卡片 | 定位 Herdr 到该 Pane，并把终端窗口带到前台 |
 | 点击卡片右上角 `↩` | 展开回复区（输入框 + 最近输出） |
 | `Enter` / `Shift+Enter` / `Esc` | 发送 / 换行 / 收起回复区 |
-| 右上角「浅色 / 深色 / 霓虹」 | 三种主题切换（默认霓虹，记忆选择） |
+| 左侧底部「浅色 / 深色 / 霓虹 / 指挥」 | 四种主题切换（默认指挥，记忆选择） |
 | 「状态看板 / 工作区 / 窗口」 | 三种视图切换 |
 
 ## 使用场景

@@ -1,6 +1,6 @@
 id = "herdr-portal"
 name = "HERDR 全局看板"
-version = "1.0.0"
+version = "1.0.3"
 min_herdr_version = "0.7.0"
 description = "聚合全部 workspace / tab / pane 的 Agent 状态看板。prefix+a 打开 TUI，prefix+shift+a 打开网页大屏。"
 platforms = ["macos", "linux"]
