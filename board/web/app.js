@@ -224,7 +224,12 @@ async function load() {
   try {
     const res = await fetch("/api/snapshot", { cache: "no-store" });
     if (!res.ok) throw new Error(`HTTP ${res.status}`);
-    render(await res.json());
+    const snapshot = await res.json();
+    render(snapshot);
+    if (pendingSelect && snapshot.ok && findItem(pendingSelect)) {
+      openComposerFor(pendingSelect);
+      pendingSelect = null;
+    }
   } catch (err) {
     render({ ok: false, error: String(err), clock: new Date().toLocaleTimeString() });
   }
@@ -438,6 +443,15 @@ $("theme-toggle").addEventListener("click", () => {
 });
 
 /* ---------- 启动 ---------- */
+
+// 支持 URL 参数：?view=windows 直接打开窗口视图；?select=<pane_id> 自动选中并展开回复区
+const urlParams = new URLSearchParams(location.search);
+if (urlParams.get("view") === "windows") {
+  state.view = "windows";
+  state.family = "all";
+  updateModeButtons();
+}
+let pendingSelect = urlParams.get("select");
 
 load();
 setInterval(load, 1500);
