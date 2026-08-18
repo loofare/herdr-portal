@@ -1,142 +1,172 @@
 # herdr-portal
 
-![HERDR Portal · 基于真实脱敏界面的 README 封面](assets/banner.png)
+**English** · [简体中文](README.zh-CN.md)
 
-**HERDR 全局看板** — 把当前 Herdr 会话里的全部 workspace / tab / pane 聚合成一块实时看板。一个插件，两种形态：
+![HERDR Portal — cover built from real, redacted UI](assets/banner.png)
 
-- **TUI 看板**（`prefix+a`）：Mission Control 风格，Agent 三列 + 窗口独立视图，回车直达会话
-- **网页大屏**（`prefix+shift+a`）：指挥 / 霓虹 / 浅色 / 深色四主题，结构化进展，点卡片定位 Herdr 并弹终端到前台、网页端直接回复 Agent、最近输出 Markdown 渲染
+**Mission control for every Herdr agent.** One plugin aggregates every workspace / tab / pane in your Herdr session into a single live board, in two forms:
+
+- **TUI board** — press **`Ctrl+B` then `A`**: three agent columns plus a separate window view, `Enter` lands you in the session
+- **Web big-screen** — press **`Ctrl+B` then `Shift+A`**: four themes (command / neon / light / dark), structured progress, click a card to focus Herdr and raise its terminal, reply to an agent from the browser, recent output rendered as Markdown
 
 ![herdr 0.7+](https://img.shields.io/badge/herdr-0.7%2B-8a2be2) ![platforms](https://img.shields.io/badge/platforms-macOS%20%E2%80%A2%20Linux-informational) ![license](https://img.shields.io/badge/license-MIT-blue) ![python](https://img.shields.io/badge/python-3.9%2B-orange)
 
-## 预览
+## Why `Ctrl+B` `A` is the way to use it
 
-**网页看板**（默认指挥主题）：复刻 Mission Control 参考图的左侧命令栏、系统状态顶栏、红/蓝/绿状态列与终端状态条；待确认列为空时仍会自动隐藏。
+The TUI opens as a Herdr popup pane, so the whole round trip is two keystrokes and never leaves the keyboard:
+
+```
+Ctrl+B  A        board opens over your current pane
+↑ ↓ ← →          pick the agent that needs you (or just click it)
+Enter            jump to that pane — the board closes itself on the way out
+```
+
+No window switching, no mouse hunt, no "which tab was that agent in again". `Ctrl+B` is Herdr's prefix, `A` is the board, and `Shift+A` is the same board as a web dashboard. Because the board closes the instant it jumps, the gesture is one motion instead of a mode you have to exit.
+
+## Preview
+
+**Web board** (default *command* theme): left command rail, system status bar, red/blue/green status columns, terminal status strip. The "waiting" column hides itself when nothing is blocked.
 
 ![web board](assets/web-board.png)
 
-**网页端回复**：点卡片定位 Herdr，点卡片右上角 ↩ 展开回复区——输入框 + 该 Agent 最近输出（Markdown 渲染、实时跟随）。
+**Reply from the web**: click a card to focus Herdr, click `↩` on the card to expand the reply area — an input box plus that agent's recent output, rendered as Markdown and following live.
 
 ![web reply](assets/web-reply.png)
 
-**窗口视图**：SSH / Shell 普通终端在独立视图里，不占用主看板。
+**Window view**: plain SSH / shell terminals live in their own view instead of crowding the agent board.
 
 ![web windows](assets/web-windows.png)
 
-**TUI 看板**（真实 TUI 渲染 · 脱敏演示数据）：图中待确认为空，因此自动收起为「执行中 / 已就绪」两列；保留真实选中态、详情栏与快捷键提示。
+**TUI board** (real curses render, redacted demo data): nothing is blocked here, so the board collapses to two columns — *running* and *ready* — while keeping the real selection state, detail bar, and key hints.
 
 ![tui board](assets/tui-board.png)
 
-## 功能特性
+## Features
 
-- **聚合所有 Agent 状态**：待确认 / 执行中 / 空闲 / 已完成，以及普通窗口
-- **Agent 类型识别**：PI、OMP、Claude、Codex 等 20+ 种
-- **结构化实时进展**：当前阶段（执行命令 / 修改代码 / 等待子任务 / 等待确认…）+ 执行标题 + 工具类型 + 最近活动时间
-- **动态待确认列**：平时零占用，有 Agent 停下等你（授权/提问）时自动弹出并在顶部统计中闪烁提醒
-- **点击直达**：网页/TUI 点卡片 → Herdr 切到对应工作区/Tab/Pane，并把承载 Herdr 的终端窗口带到前台（自动识别 Ghostty / iTerm2 / Terminal / kitty / Alacritty / WezTerm 等）
-- **网页端回复 Agent**：文字直发到该 Agent 终端（空闲走 `agent prompt`，执行中模拟键盘输入），支持粘贴多行
-- **稳定可靠**：网页服务独立于 Herdr 运行（关 popup 不断线）、断线保留数据自动重连、滚动位置保持、数据指纹跳过无效重渲染
+- **Every agent state in one place** — waiting / running / idle / done, plus plain windows
+- **Agent detection** — PI, OMP, Claude, Codex and 20+ others
+- **Structured live progress** — current phase (running a command / editing code / waiting on a subtask / waiting for you…) plus the execution title, tool type, and last-active time
+- **Dynamic waiting column** — zero footprint until an agent stops for you (approval or question), then it appears first and blinks in the header counters
+- **Click to land** — web or TUI, clicking a card switches Herdr to that workspace/tab/pane and raises the terminal window that hosts Herdr (Ghostty, iTerm2, Terminal, kitty, Alacritty, WezTerm… all detected)
+- **Keyboard *and* mouse in the TUI** — full keyboard control, plus click to select, click again (or double-click) to jump, click a column to switch to it
+- **Reply to an agent from the web** — text goes straight to that agent's terminal (`agent prompt` when idle, simulated keystrokes while it runs), multi-line paste included
+- **Sturdy** — the web service runs independently of Herdr (closing the popup does not drop it), reconnects while keeping the last data, preserves scroll position, and skips redraws with a data fingerprint
 
-## 快速开始
+## Quick start
 
 ```bash
 herdr plugin install loofare/herdr-portal
 ```
 
-然后绑定快捷键（`~/.config/herdr/config.toml`）：
+Then bind the keys in `~/.config/herdr/config.toml`:
 
 ```toml
 [[keys.command]]
-key = "prefix+a"
+key = "prefix+a"            # Ctrl+B then A
 type = "plugin_action"
 command = "herdr-portal.open-board"
 description = "open global board TUI"
 
 [[keys.command]]
-key = "prefix+shift+a"
+key = "prefix+shift+a"      # Ctrl+B then Shift+A
 type = "plugin_action"
 command = "herdr-portal.open-web"
 description = "open web portal"
 ```
 
-最后 `herdr server reload-config`，即可使用。
+Finish with `herdr server reload-config` and press **`Ctrl+B` `A`**.
 
-## TUI 交互指南
+> `prefix` is Herdr's prefix key, `Ctrl+B` by default. If you remapped it, substitute your own prefix — the plugin only cares about the `+a` half.
 
-打开后默认是 **Agent 看板**（三列）：
+## TUI guide
 
-- **动态列**：待确认为空时只有「执行中 / 已就绪」两列；有 Agent 停下等你时，待确认列自动弹出并排第一
-- **虚拟滚动条**：某列卡片超出可视区域时，列右侧出现彩色滚动条，滑块比例和位置实时跟随
-- **结构化卡片**：徽标/工作区 → 标题 → `▸ 阶段 · 执行标题` → 状态/工具/Pane ID
-- **选中详情栏**（终端足够高时出现）：当前阶段、执行标题、位置路径、最近输出摘要
-- **回车直达**：`Enter` 跳转到该 Pane 并**立即关闭面板**，直接露出定位好的会话；跳转失败则保持面板并提示原因
-- **窗口视图**：`Tab` 或 `v` 切换到窗口（SSH/Shell）网格，再按一次切回
+**`Ctrl+B` `A`** opens the **agent board** (three columns):
 
-## 快捷键速查
+- **Dynamic columns** — with nothing blocked you get *running* and *ready*; the moment an agent stops for you, the waiting column appears and takes first place
+- **Virtual scrollbar** — a column with more cards than fit grows a colored scrollbar whose thumb size and position track the list
+- **Structured cards** — badge/workspace → title → `▸ phase · execution title` → status/tool/pane id
+- **Detail bar** (when the terminal is tall enough) — current phase, execution title, location path, recent output digest
+- **`Enter` lands** — jumps to the pane and **closes the board immediately**, leaving the session you aimed at in front of you; on failure the board stays and tells you why
+- **Window view** — `Tab` or `v` switches to the SSH/shell grid, press again to switch back
+
+### Mouse
+
+The TUI is keyboard-first but never keyboard-only:
+
+| Gesture | Effect |
+| --- | --- |
+| Click a card | Select it (instant detail bar update) |
+| Click the selected card again, or double-click any card | Jump to that pane and close the board |
+| Click a column's empty area | Make that column active |
+| Anything else | Keyboard shortcuts below, unchanged |
+
+Mouse reporting degrades silently: on a terminal or ncurses build without it, every key still works. The scroll wheel is deliberately not bound — macOS ships ncurses 5.7, which reports wheel-down and pointer motion on the same bit, so binding it would scroll the board whenever the pointer moved.
+
+## Key reference
 
 ### TUI
 
-| 键 | 作用 |
+| Key | Action |
 | --- | --- |
-| `↑ ↓ ← →` / `hjkl` | 选择卡片 / 切换列 |
-| `Enter` | 跳转到该 Pane 并关闭面板 |
-| `Tab` / `v` | Agent 看板 ↔ 窗口视图 |
-| `1-3` | 直选列 |
-| `r` | 立即刷新 |
-| `q` / `Esc` | 退出面板 |
+| `↑ ↓ ← →` / `hjkl` | Move between cards / columns |
+| `Enter` | Jump to the pane and close the board |
+| `Tab` / `v` | Agent board ↔ window view |
+| `1-3` | Jump straight to a column |
+| `r` | Refresh now |
+| `q` / `Esc` | Close the board |
 
-### 网页端
+### Web
 
-| 操作 | 效果 |
+| Action | Effect |
 | --- | --- |
-| 点击卡片 | 定位 Herdr 到该 Pane，并把终端窗口带到前台 |
-| 点击卡片右上角 `↩` | 展开回复区（输入框 + 最近输出） |
-| `Enter` / `Shift+Enter` / `Esc` | 发送 / 换行 / 收起回复区 |
-| 左侧底部「浅色 / 深色 / 霓虹 / 指挥」 | 四种主题切换（默认指挥，记忆选择） |
-| 「状态看板 / 工作区 / 窗口」 | 三种视图切换 |
+| Click a card | Focus Herdr on that pane and raise the terminal window |
+| Click `↩` on a card | Expand the reply area (input box + recent output) |
+| `Enter` / `Shift+Enter` / `Esc` | Send / newline / collapse the reply area |
+| Bottom-left *light / dark / neon / command* | Switch theme (command by default, choice remembered) |
+| *Board / Workspaces / Windows* | Switch view |
 
-## 使用场景
+## Use cases
 
-- **多项目并行监控**：几个 Agent 同时跑在不同 workspace，看板一眼看清谁在执行、谁在等你，点一下直达现场
-- **远程确认与回复**：Agent 卡在授权/提问时，待确认列自动弹出，在网页端输入框直接回复，不用切回终端
-- **大屏/投屏监督**：网页版放在副屏或平板，实时滚动最新进展，工作区视图按项目分组查看
-- **窗口总览**：SSH 服务器、日志跟踪等普通终端集中在窗口视图，不与 Agent 状态混排
+- **Watching parallel projects** — several agents running in different workspaces; the board shows who is working and who is waiting, and one keystroke or click puts you there
+- **Approving and replying remotely** — when an agent blocks on a permission or a question, the waiting column pops up and you can answer from the web input without going back to the terminal
+- **Big-screen supervision** — park the web board on a second display or tablet; progress scrolls live and the workspace view groups by project
+- **Window overview** — SSH sessions and log tails stay in the window view instead of mixing with agent state
 
-## 环境变量
+## Environment variables
 
-| 变量 | 作用 |
+| Variable | Effect |
 | --- | --- |
-| `HERDR_PORTAL_PORT` | 网页端口（默认 8787） |
-| `HERDR_PORTAL_NO_FRONT=1` | 点击卡片时不让终端窗口弹到前台 |
+| `HERDR_PORTAL_PORT` | Web port (default 8787) |
+| `HERDR_PORTAL_NO_FRONT=1` | Do not raise the terminal window when a card is clicked |
 
-服务管理：`python3 board/daemon.py start|stop|restart|status`（网页服务由插件自动拉起，日志在 `~/.local/state/herdr-portal/server.log`）。
+Service control: `python3 board/daemon.py start|stop|restart|status` (the plugin starts the web service on demand; logs live in `~/.local/state/herdr-portal/server.log`).
 
-## 本地开发
+## Local development
 
 ```bash
 herdr plugin link /path/to/herdr-portal
 herdr server reload-config
 ```
 
-结构：
+Layout:
 
 ```
 board/
-  tui.py          # curses TUI 看板
-  collect.py      # 采集 herdr snapshot + 会话解析
-  server.py       # 本地网页服务
-  daemon.py       # 服务进程管理（脱离 Herdr popup 运行）
-  web/            # 网页前端（原生 JS，零依赖）
+  tui.py          # curses TUI board (keyboard + mouse)
+  collect.py      # collects herdr snapshots + parses sessions
+  server.py       # local web service
+  daemon.py       # service supervisor (runs detached from the Herdr popup)
+  web/            # web frontend (vanilla JS, zero dependencies)
 scripts/
-  open-board.sh   # 打开 TUI（plugin pane overlay）
-  open-web.sh     # 启动网页服务并打开/复用浏览器标签
+  open-board.sh   # open the TUI (plugin pane overlay)
+  open-web.sh     # start the web service and open/reuse a browser tab
 ```
 
-## 要求
+## Requirements
 
 - herdr 0.7+
-- Python 3.9+（macOS 自带，Linux 需安装）
-- 网页大屏需要浏览器（Chrome / Safari / Edge 均可）
+- Python 3.9+ (bundled on macOS, install it on Linux)
+- A browser for the web big-screen (Chrome / Safari / Edge all fine)
 
 ## License
 

@@ -31,8 +31,8 @@ AGENT_COLUMNS = (
     ("settled", "SETTLED", "已就绪", "空闲 / 完成"),
 )
 
-HELP_AGENTS = "↑↓ 选择  ←→ 切列  Enter 跳转  Tab 窗口  R 刷新  Q 退出"
-HELP_WINDOWS = "↑↓←→ 选择  Enter 跳转  Tab 返回  R 刷新  Q 退出"
+HELP_AGENTS = "↑↓ 选择  ←→ 切列  Enter 跳转  鼠标 点选 · 双击跳转  Tab 窗口  R 刷新  Q 退出"
+HELP_WINDOWS = "↑↓←→ 选择  Enter 跳转  鼠标 点选 · 双击跳转  Tab 返回  R 刷新  Q 退出"
 CARD_HEIGHT = 6
 CARD_GAP = 1
 
@@ -200,6 +200,10 @@ class Board:
         self.message_until = 0.0
         self.last_refresh = 0.0
         self.error = ""
+        # 鼠标命中区：draw() 每帧重建，(top, bottom, left, right, …)
+        self.hit_cards: list[tuple[int, int, int, int, int, int]] = []
+        self.hit_panels: list[tuple[int, int, int, int, int]] = []
+        self.last_click = (0.0, -1, -1)
 
     # ---------- 数据 ----------
 
@@ -316,6 +320,39 @@ class Board:
         self.view = "windows" if self.view == "agents" else "agents"
         self._locate(self.selected_id)
 
+    # ---------- 鼠标 ----------
+
+    def _card_at(self, my: int, mx: int) -> tuple[int, int] | None:
+        for top, bottom, left, right, col, row in self.hit_cards:
+            if top <= my <= bottom and left <= mx <= right:
+                return col, row
+        return None
+
+    def _panel_at(self, my: int, mx: int) -> int | None:
+        for top, bottom, left, right, col in self.hit_panels:
+            if top <= my <= bottom and left <= mx <= right:
+                return col
+        return None
+
+    def click(self, my: int, mx: int, double: bool = False) -> bool:
+        """单击选中、双击（或再点已选中的卡片）跳转；返回 True 表示调用方关闭面板。"""
+        target = self._card_at(my, mx)
+        if target is None:
+            column = self._panel_at(my, mx)
+            if column is not None:
+                self.choose_column(column)
+            return False
+        col, row = target
+        now = time.time()
+        repeat = self.last_click[1:] == (col, row) and now - self.last_click[0] <= 0.45
+        already = list(self.pos[self.view]) == [col, row]
+        self.last_click = (now, col, row)
+        self.pos[self.view] = [col, row]
+        self.selected_item()
+        if double or repeat or already:
+            return self.jump()
+        return False
+
     # ---------- 绘制 ----------
 
     def draw_header(self, height: int, width: int) -> int:
@@ -376,6 +413,7 @@ class Board:
         pair = COLUMN_PAIR[key]
         border_attr = curses.color_pair(pair if active else P_BORDER) | (curses.A_BOLD if active else 0)
         _box(self.stdscr, y, x, height, width, border_attr, heavy=active)
+        self.hit_panels.append((y, y + height - 1, x, x + width - 1, index))
 
         number = f" {index + 1:02d} " if self.view == "agents" else " 00 "
         label = f"{number} {english} / {chinese} "
@@ -409,6 +447,9 @@ class Board:
             if card_y + CARD_HEIGHT >= y + height:
                 break
             self.draw_card(item, card_y, x + 2, CARD_HEIGHT, card_width, selected)
+            self.hit_cards.append(
+                (card_y, card_y + CARD_HEIGHT - 1, x + 2, x + 1 + card_width, index, row_index)
+            )
 
         if has_scrollbar:
             track_top = cards_top
@@ -532,6 +573,8 @@ class Board:
     def draw(self) -> None:
         stdscr = self.stdscr
         stdscr.erase()
+        self.hit_cards.clear()
+        self.hit_panels.clear()
         stdscr.bkgd(" ", curses.color_pair(P_BG))
         height, width = stdscr.getmaxyx()
         if height < 18 or width < 48:
@@ -617,8 +660,30 @@ def _init_colors() -> None:
         curses.init_pair(pair_id, foreground, background)
 
 
+_CLICK_MASK = (
+    curses.BUTTON1_PRESSED | curses.BUTTON1_RELEASED | curses.BUTTON1_CLICKED | curses.BUTTON1_DOUBLE_CLICKED
+)
+_DOUBLE_CLICK = curses.BUTTON1_DOUBLE_CLICKED
+
+
+def _enable_mouse() -> None:
+    """开启左键上报；终端或 ncurses 不支持时静默降级为纯键盘操作。
+
+    只开 ALL_MOUSE_EVENTS，由 ncurses 自己决定 X10 还是 SGR 上报协议：
+    手动写 ESC[?1006h 会让 macOS 自带的 ncurses 5.7 收到自己读不懂的
+    SGR 序列，鼠标反而彻底失灵。滚轮同理不做处理——5.7 没有 BUTTON5，
+    下滚与鼠标移动共用同一个 bit，无法区分。
+    """
+    try:
+        curses.mousemask(curses.ALL_MOUSE_EVENTS)
+        curses.mouseinterval(150)
+    except curses.error:
+        pass
+
+
 def main(stdscr: curses.window) -> None:
     _init_colors()
+    _enable_mouse()
     stdscr.nodelay(True)
     stdscr.timeout(180)
     board = Board(stdscr)
@@ -651,6 +716,14 @@ def main(stdscr: curses.window) -> None:
             board.move(drow=1)
         elif key in ("1", "2", "3", "4"):
             board.choose_column(int(key) - 1)
+        elif key == curses.KEY_MOUSE:
+            try:
+                _, mx, my, _, bstate = curses.getmouse()
+            except curses.error:
+                continue
+            if bstate & _CLICK_MASK:
+                if board.click(my, mx, double=bool(bstate & _DOUBLE_CLICK)):
+                    break
         elif key == curses.KEY_RESIZE:
             pass
 
