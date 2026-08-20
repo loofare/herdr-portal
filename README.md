@@ -37,7 +37,7 @@ No window switching, no mouse hunt, no "which tab was that agent in again". `Ctr
 
 ![web windows](assets/web-windows.png)
 
-**TUI board** (real curses render, redacted demo data): nothing is blocked here, so the board collapses to two columns — *running* and *ready* — while keeping the real selection state, detail bar, and key hints.
+**TUI board** (real curses render, redacted demo data): nothing is blocked here, so the board collapses to two columns — *running* and *ready*. The header carries the installed version plus five clickable actions (new tab / new pane / rename / reclaim / the update button that only shows when you are behind), with the real selection state, detail bar, and key hints below.
 
 ![tui board](assets/tui-board.png)
 
