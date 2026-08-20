@@ -15,7 +15,14 @@ WEB = ROOT / "web"
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
-from collect import collect_or_error, focus_target, send_text  # noqa: E402
+from collect import (  # noqa: E402
+    DEFAULT_CLEANUP_IDLE,
+    cleanup_apply,
+    cleanup_scan,
+    collect_or_error,
+    focus_target,
+    send_text,
+)
 
 HOST = os.environ.get("HERDR_PORTAL_HOST", "127.0.0.1")
 PORT = int(os.environ.get("HERDR_PORTAL_PORT", "8787"))
@@ -63,6 +70,19 @@ class Handler(BaseHTTPRequestHandler):
         if parsed.path == "/api/snapshot":
             self._json(200, collect_or_error())
             return
+        if parsed.path == "/api/cleanup":
+            try:
+                idle = DEFAULT_CLEANUP_IDLE
+                values = parse_qs(parsed.query).get("idle")
+                if values:
+                    try:
+                        idle = max(0, int(values[0]))
+                    except (TypeError, ValueError):
+                        idle = DEFAULT_CLEANUP_IDLE
+                self._json(200, cleanup_scan(idle))
+            except Exception as exc:  # noqa: BLE001
+                self._json(400, {"ok": False, "error": str(exc)})
+            return
         if parsed.path.startswith("/"):
             rel = parsed.path.lstrip("/")
             target = (WEB / rel).resolve()
@@ -74,7 +94,7 @@ class Handler(BaseHTTPRequestHandler):
 
     def do_POST(self) -> None:  # noqa: N802
         parsed = urlparse(self.path)
-        if parsed.path not in {"/api/focus", "/api/send"}:
+        if parsed.path not in {"/api/focus", "/api/send", "/api/cleanup"}:
             self._send(404, b"not found", "text/plain; charset=utf-8")
             return
         length = int(self.headers.get("Content-Length") or 0)
@@ -87,6 +107,18 @@ class Handler(BaseHTTPRequestHandler):
         if isinstance(pane_id, list):
             pane_id = pane_id[0]
         try:
+            if parsed.path == "/api/cleanup":
+                pane_ids = payload.get("pane_ids") if isinstance(payload, dict) else None
+                if isinstance(pane_ids, list) and pane_ids and isinstance(pane_ids[0], list):
+                    pane_ids = pane_ids[0]
+                idle_seconds = payload.get("idle_seconds") if isinstance(payload, dict) else None
+                try:
+                    idle_seconds = max(0, int(idle_seconds if idle_seconds is not None else DEFAULT_CLEANUP_IDLE))
+                except (TypeError, ValueError):
+                    idle_seconds = DEFAULT_CLEANUP_IDLE
+                result = cleanup_apply(pane_ids or [], idle_seconds)
+                self._json(200, {"ok": True, "result": result})
+                return
             if parsed.path == "/api/send":
                 text = payload.get("text") if isinstance(payload, dict) else None
                 if isinstance(text, list):

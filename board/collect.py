@@ -7,9 +7,13 @@ import hashlib
 import json
 import os
 import re
+import shutil
 import subprocess
+import threading
 import time
+import urllib.request
 from datetime import datetime, timezone
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from typing import Any
 
@@ -56,8 +60,30 @@ SAFE_ID_RE = re.compile(r"^[A-Za-z0-9:_-]+$")
 
 _session_cache: dict[str, tuple[float, dict[str, Any]]] = {}
 
+# ---------- 闲置回收（Reclaim） ----------
 
-def run_herdr(*args: str, timeout: float = 4.0) -> dict[str, Any]:
+# 只有前台进程全是这些「静止 shell」的窗口 pane 才可能被回收。
+SHELL_NAMES = frozenset(
+    {"sh", "bash", "zsh", "fish", "dash", "ksh", "csh", "tcsh", "nu", "xonsh", "elvish", "login"}
+)
+# 看板自身所在的 pane 永远不回收（否则会把自己关掉）。
+PORTAL_MARKERS = ("board/tui.py", "board/server.py", "board/daemon.py")
+# 阈值档位：0 = 不限，其余为「静默秒数」。TUI / 网页共用同一组档位。
+CLEANUP_THRESHOLDS = (0, 300, 1800, 7200)
+CLEANUP_THRESHOLD_LABELS = {0: "不限", 300: "5m", 1800: "30m", 7200: "2h"}
+DEFAULT_CLEANUP_IDLE = 1800
+
+_activity: dict[str, dict[str, Any]] = {}
+_activity_loaded = False
+_activity_saved_at = 0.0
+
+
+def run_herdr(*args: str, timeout: float = 4.0, allow_empty: bool = False) -> dict[str, Any]:
+    """跑一条 herdr CLI 命令并解析 JSON。
+
+    `allow_empty` 给那些成功时静默（例如 `pane run`）的子命令用：
+    退出码为 0 且没有输出时返回空字典，而不是当成失败。
+    """
     completed = subprocess.run(
         [HERDR_BIN, *args],
         check=False,
@@ -67,7 +93,9 @@ def run_herdr(*args: str, timeout: float = 4.0) -> dict[str, Any]:
     )
     raw = completed.stdout.strip() or completed.stderr.strip()
     if not raw:
-        raise RuntimeError(f"herdr {' '.join(args)} returned no output")
+        if allow_empty and completed.returncode == 0:
+            return {}
+        raise RuntimeError(f"herdr {' '.join(args)} returned no output (exit {completed.returncode})")
     try:
         payload = json.loads(raw)
     except json.JSONDecodeError as exc:
@@ -542,10 +570,14 @@ def collect() -> dict[str, Any]:
     snapshot = (payload.get("result") or {}).get("snapshot") or {}
     workspaces = {item["workspace_id"]: item for item in snapshot.get("workspaces") or [] if item.get("workspace_id")}
     tabs = {item["tab_id"]: item for item in snapshot.get("tabs") or [] if item.get("tab_id")}
-    items = [
-        normalize_item(pane, workspaces, tabs, now)
-        for pane in snapshot.get("panes") or []
-    ]
+    panes = snapshot.get("panes") or []
+    items = [normalize_item(pane, workspaces, tabs, now) for pane in panes]
+    track_pane_activity(panes, now)
+    for item in items:
+        since = (_activity.get(item.get("pane_id")) or {}).get("since")
+        item["quiet_since"] = since
+        item["quiet_seconds"] = int(max(0.0, now - since)) if since else 0
+        item["quiet_label"] = human_age(since, now)
     counts = {
         "blocked": 0,
         "working": 0,
@@ -803,6 +835,518 @@ def focus_target(pane_id: str) -> dict[str, Any]:
     )
     result = run_herdr("pane", "zoom", pane_id, "--off")
     bring_herdr_to_front()
+    return result
+
+
+def _state_dir() -> Path:
+    base = os.environ.get("HERDR_PORTAL_STATE_DIR")
+    if base:
+        return Path(base)
+    return Path(os.environ.get("XDG_CACHE_HOME") or (Path.home() / ".cache")) / "herdr-portal"
+
+
+def _activity_path() -> Path:
+    return _state_dir() / "activity.json"
+
+
+def _load_activity() -> None:
+    """进程内只读一次磁盘；之后以内存镜像为准（多个看板同时跑时各自收敛）。"""
+    global _activity_loaded
+    if _activity_loaded:
+        return
+    _activity_loaded = True
+    try:
+        raw = json.loads(_activity_path().read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return
+    if isinstance(raw, dict):
+        for pane_id, record in raw.items():
+            if isinstance(record, dict) and isinstance(record.get("since"), (int, float)):
+                _activity[str(pane_id)] = {
+                    "revision": record.get("revision"),
+                    "title": record.get("title") or "",
+                    "since": float(record["since"]),
+                }
+
+
+def _save_activity(now: float) -> None:
+    global _activity_saved_at
+    if now - _activity_saved_at < 5.0:
+        return
+    _activity_saved_at = now
+    path = _activity_path()
+    try:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        tmp = path.with_suffix(".tmp")
+        tmp.write_text(json.dumps(_activity, ensure_ascii=False), encoding="utf-8")
+        os.replace(tmp, path)
+    except OSError:
+        pass
+
+
+def track_pane_activity(panes: list[dict[str, Any]], now: float) -> None:
+    """记录每个 pane「终端内容最后一次变化」的时刻，用于判断静默时长。
+
+    revision 是 herdr 的终端内容版本号：agent 跑动或用户敲字都会推进它，
+    静止的 shell 则一直不变。看板每秒采集一次，所以这份记录足够精确。
+    """
+    _load_activity()
+    dirty = False
+    live: set[str] = set()
+    for pane in panes:
+        pane_id = pane.get("pane_id")
+        if not pane_id:
+            continue
+        live.add(pane_id)
+        revision = pane.get("revision")
+        title = pane.get("terminal_title_stripped") or pane.get("terminal_title") or ""
+        record = _activity.get(pane_id)
+        if record and record.get("revision") == revision and record.get("title") == title:
+            continue
+        _activity[pane_id] = {"revision": revision, "title": title, "since": now}
+        dirty = True
+    for pane_id in [pane_id for pane_id in _activity if pane_id not in live]:
+        del _activity[pane_id]
+        dirty = True
+    if dirty:
+        _save_activity(now)
+
+
+def _process_info(pane_id: str) -> dict[str, Any] | None:
+    try:
+        payload = run_herdr("pane", "process-info", "--pane", pane_id, timeout=3.0)
+    except (RuntimeError, OSError, subprocess.SubprocessError):
+        return None
+    info = (payload.get("result") or {}).get("process_info")
+    return info if isinstance(info, dict) else None
+
+
+def _process_info_map(pane_ids: list[str]) -> dict[str, dict[str, Any] | None]:
+    if not pane_ids:
+        return {}
+    with ThreadPoolExecutor(max_workers=min(8, len(pane_ids))) as pool:
+        return dict(zip(pane_ids, pool.map(_process_info, pane_ids)))
+
+
+def _foreground_summary(info: dict[str, Any] | None) -> tuple[list[str], str, bool]:
+    """返回 (进程名列表, 展示用标签, 是否只剩静止 shell)。"""
+    processes = (info or {}).get("foreground_processes") or []
+    names: list[str] = []
+    for process in processes:
+        name = str(process.get("argv0") or process.get("name") or "").rsplit("/", 1)[-1]
+        if name.startswith("-"):
+            name = name[1:]
+        if name:
+            names.append(name)
+    shell_only = bool(names) and all(name in SHELL_NAMES for name in names)
+    label = " · ".join(dict.fromkeys(names)) if names else "无前台进程"
+    return names, label, shell_only
+
+
+def _is_portal_pane(info: dict[str, Any] | None) -> bool:
+    for process in (info or {}).get("foreground_processes") or []:
+        blob = " ".join(
+            str(part)
+            for part in (process.get("cmdline"), process.get("argv0"), *(process.get("argv") or []))
+            if part
+        )
+        if any(marker in blob for marker in PORTAL_MARKERS):
+            return True
+    return False
+
+
+def _reclaim_verdict(
+    item: dict[str, Any],
+    info: dict[str, Any] | None,
+    focused_pane_id: str | None,
+) -> tuple[str, str, str, str]:
+    """(verdict, risk, reason, process_label)；verdict 为 candidate / protected。"""
+    _, process_label, shell_only = _foreground_summary(info)
+    if item.get("focused") or item.get("pane_id") == focused_pane_id:
+        return "protected", "", "当前聚焦", process_label
+    if info is None:
+        return "protected", "", "进程信息不可用", process_label
+    if _is_portal_pane(info):
+        return "protected", "", "看板自身", process_label
+    if item.get("kind") == "agent":
+        if item.get("status") in {"working", "blocked"}:
+            return "protected", "", "Agent 运行中", process_label
+        return "candidate", "agent", "空闲 Agent", process_label
+    if not shell_only:
+        return "protected", "", f"运行中 · {process_label}", process_label
+    return "candidate", "shell", "静止 Shell", process_label
+
+
+def cleanup_scan(idle_seconds: int = DEFAULT_CLEANUP_IDLE) -> dict[str, Any]:
+    """列出可以安全回收的 pane。只读，不做任何关闭动作。"""
+    idle_seconds = max(0, int(idle_seconds))
+    snapshot = collect()
+    items = snapshot.get("items") or []
+    focused_pane_id = (snapshot.get("focused") or {}).get("pane_id")
+    focused_tab_id = (snapshot.get("focused") or {}).get("tab_id")
+    infos = _process_info_map([item["pane_id"] for item in items if item.get("pane_id")])
+
+    tab_total: dict[str, int] = {}
+    workspace_total: dict[str, int] = {}
+    for item in items:
+        tab_total[item.get("tab_id")] = tab_total.get(item.get("tab_id"), 0) + 1
+        workspace_total[item.get("workspace_id")] = workspace_total.get(item.get("workspace_id"), 0) + 1
+
+    candidates: list[dict[str, Any]] = []
+    protected: list[dict[str, Any]] = []
+    for item in items:
+        pane_id = item.get("pane_id")
+        info = infos.get(pane_id)
+        verdict, risk, reason, process_label = _reclaim_verdict(item, info, focused_pane_id)
+        quiet_seconds = float(item.get("quiet_seconds") or 0.0)
+        entry = {
+            "pane_id": pane_id,
+            "kind": item.get("kind"),
+            "agent_label": item.get("agent_label"),
+            "title": item.get("title"),
+            "workspace": item.get("workspace"),
+            "workspace_id": item.get("workspace_id"),
+            "tab": item.get("tab"),
+            "tab_id": item.get("tab_id"),
+            "status_label": item.get("status_label"),
+            "reason": reason,
+            "process": process_label,
+            "quiet_seconds": int(quiet_seconds),
+            "quiet_label": item.get("quiet_label") or "",
+        }
+        if verdict == "protected":
+            protected.append(entry)
+            continue
+        entry.update(
+            {
+                "risk": risk,
+                "idle_ok": quiet_seconds >= idle_seconds,
+                "in_focused_tab": bool(focused_tab_id) and item.get("tab_id") == focused_tab_id,
+                "last_in_tab": tab_total.get(item.get("tab_id"), 0) <= 1,
+                "last_in_workspace": workspace_total.get(item.get("workspace_id"), 0) <= 1,
+            }
+        )
+        # 默认只勾选「静止 shell + 已超过阈值 + 不在当前标签页」，Agent 一律交给人确认。
+        entry["preselect"] = bool(
+            risk == "shell" and entry["idle_ok"] and not entry["in_focused_tab"]
+        )
+        candidates.append(entry)
+
+    candidates.sort(key=lambda entry: (-entry["quiet_seconds"], entry["pane_id"] or ""))
+    return {
+        "ok": True,
+        "idle_seconds": idle_seconds,
+        "idle_label": CLEANUP_THRESHOLD_LABELS.get(idle_seconds, f"{idle_seconds // 60}m"),
+        "clock": time.strftime("%H:%M:%S"),
+        "candidates": candidates,
+        "protected": protected,
+        "counts": {
+            "candidates": len(candidates),
+            "preselected": sum(1 for entry in candidates if entry["preselect"]),
+            "protected": len(protected),
+            "panes": len(items),
+            "workspaces": len(workspace_total),
+        },
+    }
+
+
+def cleanup_apply(pane_ids: list[str], idle_seconds: int = DEFAULT_CLEANUP_IDLE) -> dict[str, Any]:
+    """关闭选中的 pane。只会关闭「本次重新扫描仍然是候选」的 pane。
+
+    herdr 会级联回收：关掉标签页里最后一个 pane 会连标签页一起收，
+    关掉工作区里最后一个标签页会连工作区一起收，所以只需要 pane close。
+    """
+    requested = [str(pane_id) for pane_id in pane_ids or [] if str(pane_id).strip()]
+    invalid = [pane_id for pane_id in requested if not SAFE_ID_RE.match(pane_id)]
+    if invalid:
+        raise ValueError(f"invalid pane id: {invalid[0]}")
+    if not requested:
+        raise ValueError("没有选中任何 pane")
+
+    scan = cleanup_scan(idle_seconds)
+    allowed = {entry["pane_id"] for entry in scan["candidates"]}
+    before_workspaces = {entry["workspace_id"] for entry in scan["candidates"] + scan["protected"]}
+    targets = [pane_id for pane_id in requested if pane_id in allowed]
+    skipped = [pane_id for pane_id in requested if pane_id not in allowed]
+
+    closed: list[str] = []
+    failed: list[dict[str, str]] = []
+    for pane_id in targets:
+        try:
+            run_herdr("pane", "close", pane_id, timeout=6.0)
+            closed.append(pane_id)
+        except Exception as exc:  # noqa: BLE001 - 单个 pane 失败不影响其余
+            failed.append({"pane_id": pane_id, "error": str(exc)})
+    for pane_id in closed:
+        _activity.pop(pane_id, None)
+
+    after = collect_or_error()
+    after_items = after.get("items") or []
+    after_workspaces = {item.get("workspace_id") for item in after_items}
+    return {
+        "ok": not failed,
+        "closed": closed,
+        "failed": failed,
+        "skipped": skipped,
+        "freed": {
+            "panes": len(closed),
+            "workspaces": len(before_workspaces - after_workspaces),
+        },
+        "remaining": {
+            "panes": len(after_items),
+            "workspaces": len(after_workspaces),
+        },
+    }
+
+
+# ---------- 重命名 ----------
+
+RENAME_KINDS = ("pane", "tab", "workspace")
+RENAME_LABELS = {"pane": "Pane 标题", "tab": "Tab 名称", "workspace": "Workspace 名称"}
+RENAME_MAX = 80
+
+
+def clean_label(text: str | None) -> str:
+    """去掉控制字符并压平空白；herdr 的 label 是单行展示用文本。"""
+    text = "".join(char for char in str(text or "") if ord(char) >= 32 and char != "\x7f")
+    return re.sub(r"\s+", " ", text).strip()[:RENAME_MAX]
+
+
+def rename_target(kind: str, target_id: str, label: str) -> dict[str, Any]:
+    """重命名 pane / tab / workspace；pane 传空字符串表示清除自定义标题。"""
+    if kind not in RENAME_KINDS:
+        raise ValueError(f"unsupported rename kind: {kind}")
+    target_id = str(target_id or "")
+    if not target_id or not SAFE_ID_RE.match(target_id):
+        raise ValueError(f"invalid {kind} id: {target_id}")
+    label = clean_label(label)
+    if not label:
+        if kind != "pane":
+            raise ValueError(f"{RENAME_LABELS[kind]}不能为空")
+        run_herdr("pane", "rename", target_id, "--clear")
+        return {"kind": kind, "target_id": target_id, "label": "", "cleared": True}
+    run_herdr(kind, "rename", target_id, label)
+    return {"kind": kind, "target_id": target_id, "label": label, "cleared": False}
+
+
+# ---------- 新开 Tab / Pane ----------
+
+SPAWN_DIRECTIONS = ("right", "down")
+SPAWN_LABELS = {"tab": "Tab", "pane": "Pane"}
+
+
+def spawn_tab(
+    workspace_id: str | None = None,
+    cwd: str | None = None,
+    label: str | None = None,
+) -> dict[str, Any]:
+    """新开一个标签页，返回它的根 pane。
+
+    默认不抢焦点：看板负责建，跳不跳由调用方决定（失败时不留下半个焦点）。
+    """
+    args = ["tab", "create", "--no-focus"]
+    if workspace_id:
+        if not SAFE_ID_RE.match(workspace_id):
+            raise ValueError(f"invalid workspace id: {workspace_id}")
+        args += ["--workspace", workspace_id]
+    if cwd:
+        args += ["--cwd", cwd]
+    label = clean_label(label)
+    if label:
+        args += ["--label", label]
+    result = run_herdr(*args, timeout=10.0).get("result") or {}
+    pane_id = (result.get("root_pane") or {}).get("pane_id")
+    if not pane_id:
+        raise RuntimeError("herdr 没有返回新建的 pane")
+    return {"kind": "tab", "pane_id": pane_id, "tab_id": (result.get("tab") or {}).get("tab_id")}
+
+
+def spawn_pane(pane_id: str, direction: str = "right", cwd: str | None = None) -> dict[str, Any]:
+    """在指定 pane 旁边切一个新 pane，返回新 pane。"""
+    pane_id = str(pane_id or "")
+    if not pane_id or not SAFE_ID_RE.match(pane_id):
+        raise ValueError(f"invalid pane id: {pane_id}")
+    if direction not in SPAWN_DIRECTIONS:
+        raise ValueError(f"unsupported split direction: {direction}")
+    args = ["pane", "split", pane_id, "--direction", direction, "--no-focus"]
+    if cwd:
+        args += ["--cwd", cwd]
+    result = run_herdr(*args, timeout=10.0).get("result") or {}
+    new_id = (result.get("pane") or {}).get("pane_id")
+    if not new_id:
+        raise RuntimeError("herdr 没有返回新建的 pane")
+    return {"kind": "pane", "pane_id": new_id, "direction": direction, "source_pane_id": pane_id}
+
+
+# ---------- 全局资源清理（Mole / mo clean） ----------
+
+MO_BIN = os.environ.get("HERDR_PORTAL_MO_BIN", "mo")
+
+
+def mo_available() -> bool:
+    return shutil.which(MO_BIN) is not None
+
+
+def launch_task(command: list[str], label: str, cwd: str | None = None) -> dict[str, Any]:
+    """新开一个 herdr 标签页并在里面跑命令，返回新 pane。
+
+    交互式工具（sudo 提示、全屏 UI）必须待在真正的终端里，所以看板只负责
+    起一个标签页把它交出去，不去代管它的输入输出。
+    """
+    if not command:
+        raise ValueError("命令为空")
+    spawned = spawn_tab(cwd=cwd, label=clean_label(label) or "task")
+    pane_id = spawned["pane_id"]
+    try:
+        run_herdr("pane", "run", pane_id, *command, timeout=10.0, allow_empty=True)
+    except Exception:
+        # 命令没起来就别留下一个空标签页
+        try:
+            run_herdr("pane", "close", pane_id, timeout=6.0)
+        except Exception:  # noqa: BLE001
+            pass
+        raise
+    return {"pane_id": pane_id, "tab_id": spawned["tab_id"], "command": " ".join(command)}
+
+
+def mo_clean(dry_run: bool = True) -> dict[str, Any]:
+    """把全局磁盘清理交给 Mole（mo clean），在新标签页里跑。"""
+    if not mo_available():
+        raise RuntimeError(f"未找到 {MO_BIN}（Mole）· https://mole.fit")
+    command = [MO_BIN, "clean"] + (["--dry-run"] if dry_run else [])
+    label = "mo clean · 预览" if dry_run else "mo clean"
+    result = launch_task(command, label, cwd=str(Path.home()))
+    result["dry_run"] = dry_run
+    return result
+
+
+# ---------- 版本检查 / 更新引导 ----------
+
+PLUGIN_ROOT = Path(__file__).resolve().parent.parent
+MANIFEST_PATH = PLUGIN_ROOT / "herdr-plugin.toml"
+VERSION_REPO = os.environ.get("HERDR_PORTAL_REPO", "loofare/herdr-portal")
+VERSION_BRANCH = os.environ.get("HERDR_PORTAL_BRANCH", "main")
+VERSION_TTL = float(os.environ.get("HERDR_PORTAL_VERSION_TTL") or 6 * 3600)
+VERSION_TIMEOUT = 6.0
+VERSION_RE = re.compile(r'(?m)^\s*version\s*=\s*"([^"]+)"')
+_version_worker: threading.Thread | None = None
+
+
+def _manifest_version(text: str) -> str:
+    match = VERSION_RE.search(text or "")
+    return match.group(1).strip() if match else ""
+
+
+def local_version() -> str:
+    try:
+        return _manifest_version(MANIFEST_PATH.read_text(encoding="utf-8"))
+    except OSError:
+        return ""
+
+
+def _version_key(version: str) -> tuple[int, int, int, int]:
+    """把 1.2.10 变成能比大小的定长元组。
+
+    定长很重要：补零后 `1.2.0` 和 `1.2.0-rc1` 相等，预发布版本不会被当成更新。
+    """
+    key = [0, 0, 0, 0]
+    for index, part in enumerate(re.split(r"[.\-+_]", str(version or "").lstrip("vV"))[:4]):
+        digits = re.match(r"\d+", part)
+        key[index] = int(digits.group()) if digits else 0
+    return tuple(key)  # type: ignore[return-value]
+
+
+def _version_cache_path() -> Path:
+    return _state_dir() / "version.json"
+
+
+def _read_version_cache() -> dict[str, Any]:
+    try:
+        raw = json.loads(_version_cache_path().read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return {}
+    return raw if isinstance(raw, dict) else {}
+
+
+def fetch_latest_version() -> dict[str, Any]:
+    """读一次上游 manifest 的版本号并落缓存；离线 / 限流都只记成「查不到」。"""
+    url = f"https://raw.githubusercontent.com/{VERSION_REPO}/{VERSION_BRANCH}/herdr-plugin.toml"
+    record: dict[str, Any] = {"checked_at": time.time(), "source": url}
+    try:
+        request = urllib.request.Request(url, headers={"User-Agent": "herdr-portal"})
+        with urllib.request.urlopen(request, timeout=VERSION_TIMEOUT) as response:
+            body = response.read(200_000).decode("utf-8", "replace")
+        latest = _manifest_version(body)
+        if not latest:
+            raise ValueError("上游 manifest 没有 version 字段")
+        record["latest"] = latest
+    except Exception as exc:  # noqa: BLE001 - 查版本失败绝不该影响看板
+        record["error"] = str(exc)
+    path = _version_cache_path()
+    try:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        tmp = path.with_suffix(".tmp")
+        tmp.write_text(json.dumps(record, ensure_ascii=False), encoding="utf-8")
+        os.replace(tmp, path)
+    except OSError:
+        pass
+    return record
+
+
+def version_status(refresh: bool = False) -> dict[str, Any]:
+    """当前版本 vs 上游最新版本。默认只读缓存（不碰网络，不阻塞渲染）。"""
+    current = local_version()
+    record = fetch_latest_version() if refresh else _read_version_cache()
+    latest = str(record.get("latest") or "")
+    checked_at = record.get("checked_at")
+    if latest and current:
+        state = "outdated" if _version_key(latest) > _version_key(current) else "current"
+    else:
+        state = "unknown"
+    return {
+        "current": current,
+        "latest": latest,
+        "state": state,
+        "error": str(record.get("error") or ""),
+        "checked_at": checked_at,
+        "stale": not checked_at or (time.time() - float(checked_at)) > VERSION_TTL,
+        "source": str(record.get("source") or ""),
+    }
+
+
+def start_version_check() -> None:
+    """缓存过期时后台查一次；看板第一帧不等网络。"""
+    global _version_worker
+    if _version_worker is not None and _version_worker.is_alive():
+        return
+    if not version_status()["stale"]:
+        return
+    _version_worker = threading.Thread(target=fetch_latest_version, name="portal-version", daemon=True)
+    _version_worker.start()
+
+
+def update_plan() -> dict[str, Any]:
+    """怎么更新这份插件：git 克隆的走 git pull，GitHub 装的走 plugin install。"""
+    if (PLUGIN_ROOT / ".git").exists():
+        return {
+            "mode": "git",
+            "command": ["git", "-C", str(PLUGIN_ROOT), "pull", "--ff-only"],
+            "label": "portal 更新 · git pull",
+            "hint": f"git pull --ff-only · {PLUGIN_ROOT}",
+        }
+    return {
+        "mode": "plugin",
+        "command": [HERDR_BIN, "plugin", "install", f"github:{VERSION_REPO}"],
+        "label": "portal 更新 · plugin install",
+        "hint": f"herdr plugin install github:{VERSION_REPO}",
+    }
+
+
+def launch_update() -> dict[str, Any]:
+    """在新标签页里跑更新命令：输出看得见、冲突能自己处理，看板不代管。"""
+    plan = update_plan()
+    result = launch_task(plan["command"], plan["label"], cwd=str(PLUGIN_ROOT))
+    result.update({"mode": plan["mode"], "hint": plan["hint"]})
     return result
 
 

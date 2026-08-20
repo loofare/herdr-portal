@@ -55,6 +55,11 @@
       <div class="rail-stats" id="rail-stats" aria-live="polite"></div>
 
       <div class="rail-foot">
+        <button class="cleanup-open" id="cleanup-open" title="释放闲置 Pane（快捷键 X）">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 3v6"/><path d="M15 3v6"/><path d="M5 9h14v2a4 4 0 0 1-4 4h-6a4 4 0 0 1-4-4z"/><path d="M8 15v3a3 3 0 0 0 3 3h2a3 3 0 0 0 3-3v-3"/></svg>
+          <span class="cleanup-open-label">释放闲置</span>
+          <span class="cleanup-count" id="cleanup-count" hidden>0</span>
+        </button>
         <div class="themes" role="tablist" aria-label="主题">
           <button data-theme="light" role="tab" aria-selected="false">浅色</button>
           <button data-theme="dark" role="tab" aria-selected="false">深色</button>
@@ -108,11 +113,46 @@
       </section>
 
       <footer class="status-strip">
-        <span class="footer-hint"><kbd>CLICK</kbd> 在 Herdr 中定位该 Pane · <kbd>↩</kbd> 展开回复输入 · <kbd>ENTER</kbd>/<kbd>SPACE</kbd> 激活卡片</span>
+        <span class="footer-hint"><kbd>CLICK</kbd> 在 Herdr 中定位该 Pane · <kbd>↩</kbd> 展开回复输入 · <kbd>ENTER</kbd>/<kbd>SPACE</kbd> 激活卡片 · <kbd>X</kbd> 释放闲置</span>
         <span id="meta"></span>
       </footer>
     </div>
   </div>
+
+  <div class="cleanup-backdrop" id="cleanup" hidden>
+    <div class="cleanup-dialog" role="dialog" aria-modal="true" aria-labelledby="cleanup-title" tabindex="-1">
+      <header class="cleanup-head">
+        <div class="cleanup-head-copy">
+          <h2 id="cleanup-title">释放闲置 Pane</h2>
+          <p class="cleanup-sub">回收静默超过阈值的空闲 Pane，释放系统资源</p>
+        </div>
+        <button class="cleanup-close" id="cleanup-close" title="关闭 (Esc)">✕</button>
+      </header>
+      <div class="cleanup-toolbar">
+        <label class="cleanup-threshold">空闲阈值
+          <select id="cleanup-threshold">
+            <option value="0">不限</option>
+            <option value="300">5m</option>
+            <option value="1800" selected>30m</option>
+            <option value="7200">2h</option>
+          </select>
+        </label>
+        <div class="cleanup-tools">
+          <button id="cleanup-all" class="cleanup-tool">全选</button>
+          <button id="cleanup-none" class="cleanup-tool">全不选</button>
+        </div>
+      </div>
+      <div class="cleanup-body" id="cleanup-body"></div>
+      <div class="cleanup-protected" id="cleanup-protected"></div>
+      <footer class="cleanup-foot">
+        <span class="cleanup-selected" id="cleanup-selected">已选 0 / 共 0</span>
+        <span class="cleanup-msg" id="cleanup-msg" role="status"></span>
+        <button class="cleanup-cancel" id="cleanup-cancel">取消</button>
+        <button class="cleanup-apply" id="cleanup-apply">释放选中</button>
+      </footer>
+    </div>
+  </div>
+  <div class="toast" id="toast" role="status" hidden></div>
   <script src="/md.js"></script>
   <script src="/app.js"></script>
 </body>

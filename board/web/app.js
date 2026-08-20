@@ -27,6 +27,12 @@ const state = {
   lastViewKey: null,
   lastFingerprint: null,
   lastBlockedCount: 0,
+  cleanup: {
+    threshold: 1800, // 0 = 不限 / 300 = 5m / 1800 = 30m / 7200 = 2h
+    scan: null, // 最近一次 cleanup_scan 的结果
+    checked: new Set(), // 勾选的 pane_id
+    applying: false,
+  },
 };
 
 const $ = (id) => document.getElementById(id);
@@ -79,25 +85,27 @@ function card(item) {
   const descHtml = description ? `<p class="card-desc">${esc(description)}</p>` : "";
   const cwd = item.project || item.cwd_short || "";
   const metaParts = [item.tab, cwd, item.last_active_label].filter(Boolean);
+  // 框架标签（OMP / PI / Claude…）退居角落：小号、弱化、小写，不再占整行
+  const cornerTag = item.agent_label
+    ? `<span class="card-corner" title="框架：${esc(item.agent_label)}">${kindIcon}<span class="card-corner-text">${esc(String(item.agent_label).toLowerCase())}</span></span>`
+    : "";
   return `
     <article class="card tone-${esc(tone)} ${item.focused ? "focused" : ""} ${selected ? "selected" : ""}"
       data-pane="${esc(item.pane_id)}"
       data-active="${item.activity_active ? "true" : "false"}"
       tabindex="0"
-      aria-label="${esc(item.agent_label + " · " + strongTitle + " · " + item.status_label)}"
+      aria-label="${esc(strongTitle + " · " + item.agent_label + " · " + item.status_label)}"
       title="${esc(item.terminal_title_raw || item.terminal_title || item.title)}">
-      <div class="card-top">
-        <span class="card-id">${kindIcon}<span class="card-id-text">${esc(item.agent_label)}</span></span>
-        <span class="card-top-right">
-          <span class="card-pill">${esc(item.status_label)}${item.focused ? " · 当前" : ""}</span>
-          ${replyBtn}
-        </span>
+      <div class="card-head">
+        <h3 class="title">${esc(strongTitle)}</h3>
+        ${cornerTag}
       </div>
-      <h3 class="title">${esc(strongTitle)}</h3>
       ${descHtml}
       <div class="card-meta">
+        <span class="card-pill">${esc(item.status_label)}${item.focused ? " · 当前" : ""}</span>
         <span class="card-meta-icon">${statusIcon(tone)}</span>
         <span class="card-meta-text"><strong>${esc(item.workspace)}</strong>${metaParts.length ? `<span>·</span>${esc(metaParts.join(" · "))}` : ""}</span>
+        ${replyBtn}
       </div>
       <div class="activity-rail" aria-hidden="true"><i></i></div>
     </article>
@@ -462,6 +470,207 @@ function autosize() {
   input.style.height = `${Math.min(input.scrollHeight, 150)}px`;
 }
 
+/* ---------- 释放闲置 Pane ---------- */
+
+async function fetchCleanup(idle) {
+  const res = await fetch(`/api/cleanup?idle=${encodeURIComponent(idle)}`, { cache: "no-store" });
+  const payload = await res.json();
+  if (!res.ok || payload.ok === false) throw new Error(payload.error || `HTTP ${res.status}`);
+  return payload;
+}
+
+function updateCleanupBadge(count) {
+  const badge = $("cleanup-count");
+  if (!badge) return;
+  badge.textContent = count > 0 ? String(count) : "";
+  badge.hidden = !(count > 0);
+}
+
+// 懒刷新角标：页面加载时 + 每次执行释放后各扫一次（扫描约 1s，不进 1.5s 轮询）
+async function refreshCleanupCount() {
+  try {
+    const payload = await fetchCleanup(state.cleanup.threshold);
+    updateCleanupBadge(payload.counts?.preselected ?? 0);
+  } catch {
+    // 服务不可用时静默降级，角标保持隐藏
+    updateCleanupBadge(0);
+  }
+}
+
+function cleanupSelectedCount() {
+  return state.cleanup.checked.size;
+}
+
+function updateCleanupSelected() {
+  const total = state.cleanup.scan?.candidates?.length ?? 0;
+  const n = cleanupSelectedCount();
+  $("cleanup-selected").textContent = `已选 ${n} / 共 ${total}`;
+  $("cleanup-apply").disabled = n === 0 || state.cleanup.applying;
+}
+
+function renderCleanup() {
+  const scan = state.cleanup.scan;
+  const body = $("cleanup-body");
+  const candidates = scan?.candidates || [];
+  if (!candidates.length) {
+    body.innerHTML = `<div class="cleanup-empty">没有可释放的闲置 Pane（换个阈值试试？）</div>`;
+    $("cleanup-protected").innerHTML = "";
+    $("cleanup-selected").textContent = "已选 0 / 共 0";
+    $("cleanup-apply").disabled = true;
+    return;
+  }
+  const checked = state.cleanup.checked;
+  body.innerHTML = candidates
+    .map((c) => {
+      const riskAgent = c.risk === "agent";
+      const quiet = c.quiet_label || `${c.quiet_seconds}s`;
+      const meta = [c.workspace, c.tab, c.pane_id, c.process, `静默 ${quiet}`].filter(Boolean).join(" · ");
+      const tags = [
+        riskAgent ? `<span class="cleanup-tag tag-agent">Agent</span>` : "",
+        c.in_focused_tab ? `<span class="cleanup-tag tag-warn">当前标签页</span>` : "",
+      ].join("");
+      const hints = c.last_in_workspace
+        ? `<span class="cleanup-row-hint">→ 连带释放 workspace ${esc(c.workspace)}</span>`
+        : "";
+      return `
+        <label class="cleanup-row ${riskAgent ? "risk-agent" : ""}" data-pane="${esc(c.pane_id)}">
+          <input type="checkbox" value="${esc(c.pane_id)}" ${checked.has(c.pane_id) ? "checked" : ""}>
+          <span class="cleanup-row-main">
+            <span class="cleanup-row-title">${esc(c.title)}${tags}</span>
+            <span class="cleanup-row-meta">${esc(meta)}</span>
+            <span class="cleanup-row-reason">${esc(c.reason)}</span>
+            ${hints}
+          </span>
+        </label>
+      `;
+    })
+    .join("");
+  const protectedList = (scan.protected || []).map((p) => `
+    <li><code>${esc(p.pane_id)}</code><span>${esc(p.title)}</span><em>${esc(p.reason)}</em></li>
+  `).join("");
+  $("cleanup-protected").innerHTML = protectedList
+    ? `<details class="cleanup-protected-details"><summary>已保护 ${(scan.protected || []).length} 项 · 不会自动释放</summary><ul>${protectedList}</ul></details>`
+    : "";
+  updateCleanupSelected();
+}
+
+function setAllCleanup(checked) {
+  $("cleanup-body").querySelectorAll("input[type=checkbox]").forEach((box) => {
+    box.checked = checked;
+  });
+  state.cleanup.checked = checked
+    ? new Set((state.cleanup.scan?.candidates || []).map((c) => c.pane_id))
+    : new Set();
+  updateCleanupSelected();
+}
+
+function cleanupScanStatus(text) {
+  const msg = $("cleanup-msg");
+  msg.textContent = text;
+  msg.className = "cleanup-msg err";
+}
+
+async function loadCleanupScan() {
+  $("cleanup-msg").textContent = "";
+  $("cleanup-msg").className = "cleanup-msg";
+  $("cleanup-apply").textContent = "释放选中";
+  $("cleanup-apply").disabled = true;
+  $("cleanup-body").innerHTML = `<div class="cleanup-empty">扫描中…</div>`;
+  $("cleanup-protected").innerHTML = "";
+  try {
+    state.cleanup.scan = await fetchCleanup(state.cleanup.threshold);
+    state.cleanup.checked = new Set(
+      (state.cleanup.scan.candidates || []).filter((c) => c.preselect).map((c) => c.pane_id)
+    );
+    updateCleanupBadge(state.cleanup.scan.counts?.preselected ?? 0);
+    renderCleanup();
+    return true;
+  } catch (err) {
+    $("cleanup-body").innerHTML = `<div class="cleanup-empty">扫描失败：${esc(err.message)}</div>`;
+    return false;
+  }
+}
+
+async function openCleanup() {
+  const dialog = $("cleanup");
+  dialog.hidden = false;
+  $("cleanup-threshold").value = String(state.cleanup.threshold);
+  if (!(await loadCleanupScan())) return;
+  // 焦点移入面板：优先第一个勾选框，其次面板本身
+  const first = dialog.querySelector("input[type=checkbox]");
+  if (first) first.focus();
+  else dialog.querySelector(".cleanup-dialog").focus();
+}
+
+function closeCleanup() {
+  const dialog = $("cleanup");
+  if (dialog.hidden) return;
+  dialog.hidden = true;
+  state.cleanup.applying = false;
+  const openBtn = $("cleanup-open");
+  if (openBtn) openBtn.focus();
+}
+
+let toastTimer = null;
+function showToast(text) {
+  const toast = $("toast");
+  toast.textContent = text;
+  toast.hidden = false;
+  toast.classList.remove("toast-out");
+  clearTimeout(toastTimer);
+  toastTimer = setTimeout(() => {
+    toast.classList.add("toast-out");
+    setTimeout(() => {
+      toast.hidden = true;
+    }, 320);
+  }, 4200);
+}
+
+async function applyCleanup() {
+  if (state.cleanup.applying) return;
+  const paneIds = [...state.cleanup.checked];
+  if (!paneIds.length) return;
+  state.cleanup.applying = true;
+  const applyBtn = $("cleanup-apply");
+  applyBtn.disabled = true;
+  applyBtn.textContent = "释放中…";
+  try {
+    const res = await fetch("/api/cleanup", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ pane_ids: paneIds, idle_seconds: state.cleanup.threshold }),
+    });
+    const payload = await res.json();
+    if (!res.ok || payload.ok === false) throw new Error(payload.error || `HTTP ${res.status}`);
+    const r = payload.result || {};
+    const parts = [];
+    if ((r.closed || []).length) parts.push(`已释放 ${r.closed.length} 个 pane`);
+    if ((r.freed?.workspaces || 0) > 0) parts.push(`回收 ${r.freed.workspaces} 个 workspace`);
+    if ((r.skipped || []).length) parts.push(`${r.skipped.length} 项已变为活跃，已跳过`);
+    state.cleanup.applying = false;
+    applyBtn.textContent = "释放选中";
+    if ((r.failed || []).length) {
+      // 有失败：留在面板里展示首个错误，方便重试
+      cleanupScanStatus(
+        `释放失败 ${r.failed.length} 项：${r.failed[0].error}${(r.closed || []).length ? `（已释放 ${r.closed.length} 项）` : ""}`
+      );
+      applyBtn.disabled = cleanupSelectedCount() === 0;
+      load();
+      refreshCleanupCount();
+      return;
+    }
+    showToast(parts.length ? parts.join(" · ") : "没有可释放的 Pane");
+    closeCleanup();
+    load();
+    refreshCleanupCount(); // 释放后懒刷新角标
+  } catch (err) {
+    state.cleanup.applying = false;
+    applyBtn.textContent = "释放选中";
+    applyBtn.disabled = cleanupSelectedCount() === 0;
+    cleanupScanStatus(`请求失败：${err.message}`);
+  }
+}
+
 /* ---------- 事件 ---------- */
 
 $("filters").addEventListener("click", (event) => {
@@ -533,6 +742,45 @@ $("composer-input").addEventListener("input", autosize);
 
 $("composer-send").addEventListener("click", sendMessage);
 
+/* ---------- 释放闲置：事件 ---------- */
+
+$("cleanup-open").addEventListener("click", openCleanup);
+$("cleanup-close").addEventListener("click", closeCleanup);
+$("cleanup-cancel").addEventListener("click", closeCleanup);
+$("cleanup-apply").addEventListener("click", applyCleanup);
+$("cleanup-all").addEventListener("click", () => setAllCleanup(true));
+$("cleanup-none").addEventListener("click", () => setAllCleanup(false));
+$("cleanup").addEventListener("click", (event) => {
+  // 点击遮罩（面板外）关闭
+  if (event.target === $("cleanup")) closeCleanup();
+});
+$("cleanup-body").addEventListener("change", (event) => {
+  const box = event.target;
+  if (!box.matches("input[type=checkbox]")) return;
+  if (box.checked) state.cleanup.checked.add(box.value);
+  else state.cleanup.checked.delete(box.value);
+  updateCleanupSelected();
+});
+$("cleanup-threshold").addEventListener("change", async (event) => {
+  state.cleanup.threshold = parseInt(event.target.value, 10) || 0;
+  await loadCleanupScan();
+});
+document.addEventListener("keydown", (event) => {
+  // Esc：关闭面板（先于其它 Esc 消费方判断，面板打开时优先）
+  if (event.key === "Escape" && !$("cleanup").hidden) {
+    event.preventDefault();
+    closeCleanup();
+    return;
+  }
+  // 全局快捷键 x / X 打开释放面板；输入场景与组合键一律放行
+  if (event.key !== "x" && event.key !== "X") return;
+  if (event.ctrlKey || event.metaKey || event.altKey) return;
+  const target = event.target;
+  if (target instanceof HTMLElement && target.closest("input, textarea, select, [contenteditable]")) return;
+  event.preventDefault();
+  if ($("cleanup").hidden) openCleanup();
+});
+
 /* ---------- 主题 ---------- */
 
 const THEME_KEY = "herdr-portal-theme-v3";
@@ -577,4 +825,5 @@ if (urlParams.get("view") === "windows") {
 let pendingSelect = urlParams.get("select");
 
 load();
+refreshCleanupCount(); // 懒刷新「释放闲置」角标（不进 1.5s 轮询）
 setInterval(load, 1500);

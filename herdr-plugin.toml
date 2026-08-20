@@ -1,8 +1,8 @@
 id = "herdr-portal"
 name = "HERDR Portal 全局看板"
-version = "1.1.0"
+version = "1.2.0"
 min_herdr_version = "0.7.0"
-description = "Mission-control dashboard and status board for herdr: monitor every workspace / tab / pane agent in a live TUI kanban (keyboard and mouse friendly) or web big-screen, click a card to jump to that session, and reply to a waiting agent from the browser. Ctrl+B A 打开 TUI 看板，Ctrl+B Shift+A 打开网页大屏；聚合全部 workspace / tab / pane 的 Agent 状态监控，支持鼠标点选。"
+description = "Mission-control dashboard and status board for herdr: monitor every workspace / tab / pane agent in a live TUI kanban (keyboard and mouse friendly) or web big-screen, click a card to jump to that session, open a new tab / split pane straight from the board, reply to a waiting agent from the browser, rename panes / tabs / workspaces in place, reclaim idle panes, check for a newer portal release and run the update in a real tab, and hand global disk cleanup to Mole (mo clean). Ctrl+B A 打开 TUI 看板，Ctrl+B Shift+A 打开网页大屏；聚合全部 workspace / tab / pane 的 Agent 状态监控，支持鼠标点选，N 新开 Tab，s/S 新开 Pane，E 重命名，X 释放闲置，U 检查并更新版本，d/D 调起 mo clean 做全局磁盘清理。"
 platforms = ["macos", "linux"]
 
 [[actions]]
