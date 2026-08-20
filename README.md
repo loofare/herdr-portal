@@ -25,7 +25,7 @@ No window switching, no mouse hunt, no "which tab was that agent in again". `Ctr
 
 ## Preview
 
-**Web board** (default *command* theme): left command rail, system status bar, red/blue/green status columns, terminal status strip. The "waiting" column hides itself when nothing is blocked.
+**Web board** (default *command* theme, redacted demo data): left command rail (view switch, agent-family filter, reclaim entry), system status bar, red/blue/green status columns, terminal status strip. The "waiting" column hides itself when nothing is blocked.
 
 ![web board](assets/web-board.png)
 
@@ -36,6 +36,10 @@ No window switching, no mouse hunt, no "which tab was that agent in again". `Ctr
 **Window view**: plain SSH / shell terminals live in their own view instead of crowding the agent board.
 
 ![web windows](assets/web-windows.png)
+
+**Reclaim from the web**: candidates are panes quieter than the threshold — idle shells come pre-ticked, idle agents are left for you to confirm, and protected panes are folded away with the reason they are protected.
+
+![web cleanup](assets/web-cleanup.png)
 
 **TUI board** (real curses render, redacted demo data): nothing is blocked here, so the board collapses to two columns — *running* and *ready*. The header carries the installed version plus five clickable actions (new tab / new pane / rename / reclaim / the update button that only shows when you are behind), with the real selection state, detail bar, and key hints below.
 
