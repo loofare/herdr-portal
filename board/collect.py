@@ -818,14 +818,17 @@ def focus_target(pane_id: str) -> dict[str, Any]:
     item = next((entry for entry in snapshot["items"] if entry["pane_id"] == pane_id), None)
     if not item:
         raise RuntimeError(f"pane not found: {pane_id}")
-    if item["kind"] == "agent":
-        result = run_herdr("agent", "focus", pane_id)
-        bring_herdr_to_front()
-        return result
+    # `agent focus` 只在目标自己的 workspace 内部挪焦点，不会切换活动
+    # workspace。所以跨 workspace 跳转必须先把 workspace 和 tab 切过去，
+    # 否则目标 Pane 会如实报 focused:true，人却还留在原来的 workspace 里。
     if item.get("workspace_id"):
         run_herdr("workspace", "focus", item["workspace_id"])
     if item.get("tab_id"):
         run_herdr("tab", "focus", item["tab_id"])
+    if item["kind"] == "agent":
+        result = run_herdr("agent", "focus", pane_id)
+        bring_herdr_to_front()
+        return result
     subprocess.run(
         [HERDR_BIN, "pane", "zoom", pane_id, "--on"],
         check=False,
