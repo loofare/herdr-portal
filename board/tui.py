@@ -36,6 +36,7 @@ from collect import (  # noqa: E402
     collect_or_error,
     focus_target,
     launch_update,
+    label,
     mo_clean,
     rename_target,
     spawn_pane,
@@ -46,15 +47,15 @@ from collect import (  # noqa: E402
 )
 
 AGENT_COLUMNS = (
-    ("blocked", "ACTION", "待确认", "等待你确认 / 输入"),
-    ("working", "RUNNING", "执行中", "正在运行"),
-    ("settled", "SETTLED", "已就绪", "空闲 / 完成"),
+    ("blocked", "ACTION", label("待确认", "Needs input"), label("等待你确认 / 输入", "Waiting for you")),
+    ("working", "RUNNING", label("执行中", "Running"), label("正在运行", "Active")),
+    ("settled", "SETTLED", label("已就绪", "Ready"), label("空闲 / 完成", "Idle / done")),
 )
 
-HELP_AGENTS = "↑↓ 选择  ←→ 切列  Enter 跳转  N 新 Tab  s/S 新 Pane 右/下  E 重命名  X 释放闲置  U 更新  Q 退出"
-HELP_WINDOWS = "↑↓←→ 选择  Enter 跳转  N 新 Tab  s/S 新 Pane 右/下  E 重命名  X 释放闲置  U 更新  Tab 返回  Q 退出"
-HELP_RECLAIM = "↑↓ 移动  Space 选中  A 全选  N 清空  T 阈值  d/D 磁盘预览·清理  Enter 释放  Esc 返回"
-HELP_RENAME = "输入新名称  Tab 切换对象  ←→ 移动光标  Ctrl+U 清空  Enter 保存  Esc 取消"
+HELP_AGENTS = label("↑↓ 选择  ←→ 切列  Enter 跳转  N 新 Tab  s/S 新 Pane 右/下  E 重命名  X 释放闲置  U 更新  Q 退出", "↑↓ Select  ←→ Column  Enter Jump  N New tab  s/S Split right/down  E Rename  X Reclaim  U Update  Q Quit")
+HELP_WINDOWS = label("↑↓←→ 选择  Enter 跳转  N 新 Tab  s/S 新 Pane 右/下  E 重命名  X 释放闲置  U 更新  Tab 返回  Q 退出", "↑↓←→ Select  Enter Jump  N New tab  s/S Split right/down  E Rename  X Reclaim  U Update  Tab Back  Q Quit")
+HELP_RECLAIM = label("↑↓ 移动  Space 选中  A 全选  N 清空  T 阈值  d/D 磁盘预览·清理  Enter 释放  Esc 返回", "↑↓ Move  Space Select  A All  N None  T Threshold  d/D Disk preview/clean  Enter Reclaim  Esc Back")
+HELP_RENAME = label("输入新名称  Tab 切换对象  ←→ 移动光标  Ctrl+U 清空  Enter 保存  Esc 取消", "Type a new name  Tab Target  ←→ Cursor  Ctrl+U Clear  Enter Save  Esc Cancel")
 CARD_HEIGHT = 5
 CARD_GAP = 1
 
@@ -309,7 +310,7 @@ class Board:
             self.error = ""
             self._locate(previous_id)
         else:
-            self.error = next_snapshot.get("error", "采集失败")
+            self.error = next_snapshot.get("error", label("采集失败", "Collection failed"))
             if not self.snapshot:
                 self.snapshot = next_snapshot
         self.last_refresh = now
@@ -328,47 +329,47 @@ class Board:
         """U：查版本 → 有新版就上膛 → 再按一次在新标签页跑更新命令。"""
         status = self.version
         if status["state"] == "unknown" or status["stale"]:
-            self.flash("正在查最新版本…", 8.0)
+            self.flash(label("正在查最新版本…", "Checking for updates…"), 8.0)
             self.draw()
             status = self.version = version_status(refresh=True)
             self.version_read = time.time()
         current = status["current"] or "?"
         if status["state"] == "current":
-            self.flash(f"已是最新 · v{current}", 3.0)
+            self.flash(f"{label('已是最新', 'Up to date')} · v{current}", 3.0)
             return False
         if status["state"] != "outdated":
-            self.flash(f"查不到最新版本 · {status['error'] or '未知原因'}", 4.0)
+            self.flash(f"{label('查不到最新版本', 'Cannot check updates')} · {status['error'] or label('未知原因', 'unknown reason')}", 4.0)
             return False
         plan = update_plan()
         if time.time() > self.update_armed_until:
             self.update_armed_until = time.time() + 6.0
-            self.flash(f"发现新版 v{status['latest']}（当前 v{current}）· 再按一次 U 执行 {plan['hint']}", 6.0)
+            self.flash(f"{label('发现新版', 'Update available')} v{status['latest']} ({label('当前', 'current')} v{current}) · {label('再按一次 U 执行', 'press U again to run')} {plan['hint']}", 6.0)
             return False
         self.update_armed_until = 0.0
         try:
             result = launch_update()
         except Exception as exc:  # noqa: BLE001
-            self.flash(f"更新启动失败 · {exc}", 4.0)
+            self.flash(f"{label('更新启动失败', 'Could not start update')} · {exc}", 4.0)
             return False
         try:
             focus_target(result["pane_id"])
             return True
         except Exception:  # noqa: BLE001 - 命令已经在新标签页跑起来了
             self.refresh(force=True)
-            self.flash(f"已在新标签页执行 {result['hint']}", 4.0)
+            self.flash(f"{label('已在新标签页执行', 'Running in new tab')} {result['hint']}", 4.0)
             return False
 
     def jump(self) -> bool:
         """跳转到对应 Pane；成功返回 True（调用方关闭面板）。"""
         item = self.selected_item()
         if not item:
-            self.flash("当前没有可选项目")
+            self.flash(label("当前没有可选项目", "Nothing selected"))
             return False
         try:
             focus_target(item["pane_id"])
             return True
         except Exception as exc:  # noqa: BLE001
-            self.flash(f"跳转失败 · {exc}", 3.5)
+            self.flash(f"{label('跳转失败', 'Could not jump')} · {exc}", 3.5)
             return False
 
     def move(self, dcol: int = 0, drow: int = 0) -> None:
@@ -416,11 +417,11 @@ class Board:
                 result = spawn_tab(workspace_id=(item or {}).get("workspace_id"), cwd=cwd)
             else:
                 if not item:
-                    self.flash("先选中一个 pane 再拆分")
+                    self.flash(label("先选中一个 pane 再拆分", "Select a pane before splitting"))
                     return False
                 result = spawn_pane(item["pane_id"], direction=direction, cwd=cwd)
         except Exception as exc:  # noqa: BLE001
-            self.flash(f"新开 {SPAWN_LABELS[kind]} 失败 · {exc}", 3.5)
+            self.flash(f"{label('新开', 'Could not open')} {SPAWN_LABELS[kind]} · {exc}", 3.5)
             return False
         try:
             focus_target(result["pane_id"])
@@ -428,7 +429,7 @@ class Board:
         except Exception:  # noqa: BLE001 - 已经建出来了，跳转失败不算致命
             self.refresh(force=True)
             self._locate(result["pane_id"])
-            self.flash(f"已新开 {SPAWN_LABELS[kind]} {result['pane_id']}，但跳转失败", 4.0)
+            self.flash(f"{label('已新开', 'Opened')} {SPAWN_LABELS[kind]} {result['pane_id']}, {label('但跳转失败', 'but could not jump')}", 4.0)
             return False
 
     # ---------- 重命名 ----------
@@ -443,7 +444,7 @@ class Board:
     def open_rename(self, kind: str = "pane") -> None:
         item = self.selected_item()
         if not item:
-            self.flash("当前没有可重命名的项目")
+            self.flash(label("当前没有可重命名的项目", "Nothing to rename"))
             return
         text = self._rename_current(kind, item)
         self.rename = {
@@ -509,7 +510,7 @@ class Board:
         item = self.find_item(state["pane_id"])
         if item is None:
             self.close_rename()
-            self.flash("该 Pane 已经不存在了", 3.0)
+            self.flash(label("该 Pane 已经不存在了", "Pane no longer exists"), 3.0)
             return
         kind = state["kind"]
         target_id = {"pane": "pane_id", "tab": "tab_id", "workspace": "workspace_id"}[kind]
@@ -517,7 +518,7 @@ class Board:
         try:
             result = rename_target(kind, item.get(target_id) or "", text)
         except Exception as exc:  # noqa: BLE001 - 重命名失败留在面板里，方便改
-            state["note"] = f"失败 · {exc}"
+            state["note"] = f"{label('失败', 'Failed')} · {exc}"
             return
         synced = ""
         if kind == "tab":
@@ -525,21 +526,21 @@ class Board:
             # 所以把这次改名同步写到当前 Pane 的标题上（同一个 Tab 里的其他 Pane 不动）。
             try:
                 rename_target("pane", item.get("pane_id") or "", result["label"])
-                synced = " · 当前 Pane 标题同步"
+                synced = label(" · 当前 Pane 标题同步", " · pane title also updated")
             except Exception as exc:  # noqa: BLE001 - Tab 已经改好了，只报告没跟上的那一半
-                synced = f" · Pane 标题没跟上（{exc}）"
+                synced = f" · {label('Pane 标题没跟上', 'pane title not updated')} ({exc})"
         self.close_rename()
         self.refresh(force=True)
         self._locate(item.get("pane_id"))
-        label = RENAME_LABELS[kind]
-        done = f"{label} 已清除" if result["cleared"] else f"{label} 已改为「{result['label']}」"
+        target_label = RENAME_LABELS[kind]
+        done = f"{target_label} {label('已清除', 'cleared')}" if result["cleared"] else f"{target_label} {label('已改为', 'renamed to')} '{result['label']}'"
         self.flash(f"{done}{synced}", 3.0)
 
     # ---------- 闲置回收 ----------
 
     def open_reclaim(self) -> None:
         """扫描可回收的 pane 并打开确认面板（扫描是只读的）。"""
-        self.flash("正在扫描闲置 pane…", 6.0)
+        self.flash(label("正在扫描闲置 pane…", "Scanning idle panes…"), 6.0)
         self.draw()
         idle = self.reclaim.get("idle") if self.reclaim else DEFAULT_CLEANUP_IDLE
         self.reclaim = {"idle": idle, "row": 0, "start": 0, "armed": False, "note": "", "scan": None}
@@ -552,7 +553,7 @@ class Board:
             scan = cleanup_scan(self.reclaim["idle"])
         except Exception as exc:  # noqa: BLE001 - 扫描失败不能让看板崩掉
             self.reclaim = None
-            self.flash(f"扫描失败 · {exc}", 4.0)
+            self.flash(f"{label('扫描失败', 'Scan failed')} · {exc}", 4.0)
             return
         self.reclaim["scan"] = scan
         self.reclaim["chosen"] = {
@@ -613,28 +614,28 @@ class Board:
             return
         chosen = sorted(self.reclaim["chosen"])
         if not chosen:
-            self.reclaim["note"] = "没有选中任何 pane"
+            self.reclaim["note"] = label("没有选中任何 pane", "No panes selected")
             return
         if not self.reclaim["armed"]:
             self.reclaim["armed"] = True
-            self.reclaim["note"] = f"再按一次 Enter 释放 {len(chosen)} 项"
+            self.reclaim["note"] = f"{label('再按一次 Enter 释放', 'Press Enter again to reclaim')} {len(chosen)}"
             return
-        self.reclaim["note"] = "正在释放…"
+        self.reclaim["note"] = label("正在释放…", "Reclaiming…")
         self.draw()
         try:
             result = cleanup_apply(chosen, self.reclaim["idle"])
         except Exception as exc:  # noqa: BLE001
             self.reclaim["armed"] = False
-            self.reclaim["note"] = f"释放失败 · {exc}"
+            self.reclaim["note"] = f"{label('释放失败', 'Reclaim failed')} · {exc}"
             return
         freed = result.get("freed") or {}
-        parts = [f"已释放 {freed.get('panes', 0)} 个 pane"]
+        parts = [f"{label('已释放', 'Reclaimed')} {freed.get('panes', 0)} panes"]
         if freed.get("workspaces"):
-            parts.append(f"回收 {freed['workspaces']} 个 workspace")
+            parts.append(f"{label('回收', 'Reclaimed')} {freed['workspaces']} workspaces")
         if result.get("skipped"):
-            parts.append(f"{len(result['skipped'])} 项已变活跃 · 跳过")
+            parts.append(f"{len(result['skipped'])} {label('项已变活跃 · 跳过', 'became active · skipped')}")
         if result.get("failed"):
-            parts.append(f"{len(result['failed'])} 项失败 · {result['failed'][0].get('error', '')}")
+            parts.append(f"{len(result['failed'])} {label('项失败', 'failed')} · {result['failed'][0].get('error', '')}")
         self.close_reclaim()
         self.refresh(force=True)
         self._locate(self.selected_id)
@@ -660,7 +661,7 @@ class Board:
         except Exception:  # noqa: BLE001 - 标签页已经起来了，跳转失败不算致命
             self.close_reclaim()
             self.refresh(force=True)
-            self.flash(f"已在新标签页启动 {result['command']}", 4.0)
+            self.flash(f"{label('已在新标签页启动', 'Started in new tab')} {result['command']}", 4.0)
             return False
         return True
 
@@ -759,8 +760,8 @@ class Board:
         right_edge = width - margin
 
         _write(self.stdscr, 1, margin, "HERDR  /  MISSION CONTROL", attr=curses.color_pair(P_ACCENT) | curses.A_BOLD)
-        view_name = "AGENT 看板" if self.view == "agents" else "窗口 / TERMINALS"
-        subtitle = f"全局智能体调度 · {view_name}"
+        view_name = label("AGENT 看板", "AGENT BOARD") if self.view == "agents" else label("窗口 / TERMINALS", "TERMINALS")
+        subtitle = f"{label('全局智能体调度', 'ALL AGENTS')} · {view_name}"
         current = self.version.get("current")
         if current:
             subtitle += f" · v{current}"
@@ -771,42 +772,42 @@ class Board:
         _right(self.stdscr, 2, right_edge, total_text, curses.color_pair(P_MUTED))
 
         stats = (
-            ("blocked", counts.get("blocked", 0), "待确认"),
-            ("working", counts.get("working", 0), "执行中"),
-            ("settled", counts.get("idle", 0), "空闲"),
-            ("window", counts.get("done", 0), "完成"),
-            ("window", counts.get("windows", 0), "窗口"),
+            ("blocked", counts.get("blocked", 0), label("待确认", "Needs input")),
+            ("working", counts.get("working", 0), label("执行中", "Running")),
+            ("settled", counts.get("idle", 0), label("空闲", "Idle")),
+            ("window", counts.get("done", 0), label("完成", "Done")),
+            ("window", counts.get("windows", 0), label("窗口", "Terminals")),
         )
         x = margin
         if width >= 78:
-            for key, value, label in stats:
-                pill = f" {int(value):02d}  {label} "
+            for key, value, caption in stats:
+                pill = f" {int(value):02d}  {caption} "
                 _write(self.stdscr, 4, x, pill, attr=curses.color_pair(SELECT_PAIR[key]) | curses.A_BOLD)
                 x += _width(pill) + 2
         else:
-            summary = "  ".join(f"{label} {value}" for _, value, label in stats)
+            summary = "  ".join(f"{caption} {value}" for _, value, caption in stats)
             _write(self.stdscr, 4, margin, summary, width - margin * 2, curses.color_pair(P_MUTED))
 
         # 行4 右侧：常驻动作按钮（鼠标可点，标签末尾是等效快捷键）
         buttons: list[tuple[str, str, int]] = [
-            (" ⌫  释放闲置  X ", "reclaim", P_SELECT_ACCENT),
-            (" ✎  重命名  E ", "rename", P_SELECT_ACCENT),
-            (" ⬓  新 Pane  S ", "spawn-pane", P_SELECT_ACCENT),
-            (" ＋  新 Tab  N ", "spawn-tab", P_SELECT_ACCENT),
+            (label(" ⌫  释放闲置  X ", " ⌫  Reclaim idle  X "), "reclaim", P_SELECT_ACCENT),
+            (label(" ✎  重命名  E ", " ✎  Rename  E "), "rename", P_SELECT_ACCENT),
+            (label(" ⬓  新 Pane  S ", " ⬓  New pane  S "), "spawn-pane", P_SELECT_ACCENT),
+            (label(" ＋  新 Tab  N ", " ＋  New tab  N "), "spawn-tab", P_SELECT_ACCENT),
         ]
         if self.version.get("state") == "outdated":
             # 有新版时最右边多一颗醒目的更新按钮，其余按钮整体左移
-            buttons.insert(0, (f" ⬆  更新 v{self.version['latest']}  U ", "update", P_SELECT_WORKING))
-        for label, name, pair in buttons:
-            button_x = right_edge - _width(label)
+            buttons.insert(0, (f" ⬆  {label('更新', 'Update')} v{self.version['latest']}  U ", "update", P_SELECT_WORKING))
+        for button_text, name, pair in buttons:
+            button_x = right_edge - _width(button_text)
             if button_x <= x + 2:
                 break
-            _write(self.stdscr, 4, button_x, label, attr=curses.color_pair(pair) | curses.A_BOLD)
-            self.hit_buttons.append((4, 4, button_x, button_x + _width(label) - 1, name))
+            _write(self.stdscr, 4, button_x, button_text, attr=curses.color_pair(pair) | curses.A_BOLD)
+            self.hit_buttons.append((4, 4, button_x, button_x + _width(button_text) - 1, name))
             right_edge = button_x - 2
 
         if self.error:
-            message = f" 连接暂时中断 · 保留上次数据 · {self.error} "
+            message = f" {label('连接暂时中断 · 保留上次数据', 'Disconnected · showing last snapshot')} · {self.error} "
             _right(self.stdscr, 4, right_edge, message, curses.color_pair(P_SELECT_BLOCKED) | curses.A_BOLD)
 
         _write(self.stdscr, 6, margin, "─" * max(0, width - margin * 2), width - margin * 2, curses.color_pair(P_BORDER))
@@ -823,7 +824,7 @@ class Board:
         items: list[dict],
     ) -> None:
         if key == "window":
-            english, chinese, hint = "TERMINALS", "窗口", "普通终端"
+            english, chinese, hint = "TERMINALS", label("窗口", "Terminals"), label("普通终端", "Shell / SSH")
         else:
             _, english, chinese, hint = next(col for col in AGENT_COLUMNS if col[0] == key)
         active = index == self.pos[self.view][0] and self.view == "agents" or (
@@ -835,9 +836,9 @@ class Board:
         self.hit_panels.append((y, y + height - 1, x, x + width - 1, index))
 
         number = f" {index + 1:02d} " if self.view == "agents" else " 00 "
-        label = f"{number} {english} / {chinese} "
+        heading = f"{number} {english} / {chinese} "
         label_attr = curses.color_pair(SELECT_PAIR[key]) | curses.A_BOLD if active else curses.color_pair(pair) | curses.A_BOLD
-        _write(self.stdscr, y, x + 2, label, min(_width(label), width - 8), label_attr)
+        _write(self.stdscr, y, x + 2, heading, min(_width(heading), width - 8), label_attr)
         count = f" {len(items):02d} "
         _write(self.stdscr, y, x + width - _width(count) - 2, count, attr=curses.color_pair(pair) | curses.A_BOLD)
         _write(self.stdscr, y + 1, x + 2, hint, width - 4, curses.color_pair(P_MUTED))
@@ -853,7 +854,7 @@ class Board:
         card_width = width - 5 if has_scrollbar else width - 4
 
         if not items:
-            empty = "·  当前没有项目  ·"
+            empty = label("·  当前没有项目  ·", "·  No items  ·")
             empty_y = min(y + height - 2, y + 5)
             empty_x = x + max(2, (width - _width(empty)) // 2)
             _write(self.stdscr, empty_y, empty_x, empty, width - 4, curses.color_pair(P_MUTED) | curses.A_DIM)
@@ -930,7 +931,7 @@ class Board:
             _write(self.stdscr, y + 1, x + width - 2 - _width(workspace), workspace, attr=muted_attr)
 
         # 行2：进展阶段 + 执行标题
-        phase = item.get("activity_phase") or "当前进展"
+        phase = item.get("activity_phase") or label("当前进展", "Current activity")
         activity_title = item.get("activity_title") or ""
         line2 = f"▸ {phase} · {_plain(activity_title)}" if activity_title else f"▸ {phase}"
         _write(self.stdscr, y + 2, x + 2, line2, width - 4, status_attr)
@@ -973,7 +974,7 @@ class Board:
         for row in range(y, y + box_height):
             _write(self.stdscr, row, x, "", box_width, base, pad=True)
         _box(self.stdscr, y, x, box_height, box_width, accent, heavy=True)
-        _write(self.stdscr, y, x + 2, " RENAME  /  重命名 ", attr=accent)
+        _write(self.stdscr, y, x + 2, label(" RENAME  /  重命名 ", " RENAME "), attr=accent)
 
         # 对象切换：三个可点的胶囊
         cursor_x = x + 2
@@ -1005,19 +1006,19 @@ class Board:
         _write(self.stdscr, field_y, caret_x, caret_char, 2, curses.color_pair(P_DETAIL) | curses.A_REVERSE)
 
         if state["kind"] == "pane":
-            hint = "留空保存 = 清除自定义标题，回落到终端标题"
+            hint = label("留空保存 = 清除自定义标题，回落到终端标题", "Save empty to clear the custom pane title")
         elif state["kind"] == "tab":
-            hint = "保存时把当前 Pane 标题一起改成同名 · 名称不能为空"
+            hint = label("保存时把当前 Pane 标题一起改成同名 · 名称不能为空", "Also renames the pane · name cannot be empty")
         else:
-            hint = "Workspace 名称不能为空"
+            hint = label("Workspace 名称不能为空", "Workspace name cannot be empty")
         _write(self.stdscr, field_y + 1, x + 2, hint, box_width - 4, muted | curses.A_DIM)
 
         button_y = y + box_height - 2
-        cancel = " 取消 Esc "
+        cancel = label(" 取消 Esc ", " Cancel Esc ")
         cancel_x = x + box_width - 2 - _width(cancel)
         _write(self.stdscr, button_y, cancel_x, cancel, attr=curses.color_pair(P_CARD_MUTED) | curses.A_BOLD)
         self.hit_buttons.append((button_y, button_y, cancel_x, cancel_x + _width(cancel) - 1, "rename-cancel"))
-        save = " 保存 ⏎ "
+        save = label(" 保存 ⏎ ", " Save ⏎ ")
         save_x = cancel_x - 2 - _width(save)
         _write(self.stdscr, button_y, save_x, save, attr=curses.color_pair(P_SELECT_ACCENT) | curses.A_BOLD)
         self.hit_buttons.append((button_y, button_y, save_x, save_x + _width(save) - 1, "rename-save"))
@@ -1046,15 +1047,15 @@ class Board:
         for row in range(y, y + box_height):
             _write(self.stdscr, row, x, "", box_width, base, pad=True)
         _box(self.stdscr, y, x, box_height, box_width, accent, heavy=True)
-        _write(self.stdscr, y, x + 2, " RECLAIM  /  释放闲置 ", attr=accent)
+        _write(self.stdscr, y, x + 2, label(" RECLAIM  /  释放闲置 ", " RECLAIM IDLE "), attr=accent)
 
         idle = state["idle"]
         idle_label = CLEANUP_THRESHOLD_LABELS.get(idle, f"{idle // 60}m")
-        chip = f" 预选 ≥ {idle_label}   T "
+        chip = f" {label('预选', 'Preselect')} ≥ {idle_label}   T "
         chip_x = x + box_width - 2 - _width(chip)
         _write(self.stdscr, y + 1, chip_x, chip, attr=curses.color_pair(P_SELECT_WINDOW) | curses.A_BOLD)
         self.hit_buttons.append((y + 1, y + 1, chip_x, chip_x + _width(chip) - 1, "reclaim-threshold"))
-        summary = f"候选 {len(items)}  ·  已选 {len(chosen)}  ·  受保护 {len(protected)}"
+        summary = f"{label('候选', 'Candidates')} {len(items)}  ·  {label('已选', 'Selected')} {len(chosen)}  ·  {label('受保护', 'Protected')} {len(protected)}"
         _write(self.stdscr, y + 1, x + 2, summary, max(0, chip_x - x - 3), base | curses.A_BOLD)
 
         list_top = y + 3
@@ -1079,7 +1080,7 @@ class Board:
             _write(self.stdscr, ry, x + 1, "", box_width - 2, row_attr, pad=True)
             _write(self.stdscr, ry, x + 1, "▸" if active else " ", 1, row_attr | curses.A_BOLD)
             _write(self.stdscr, ry, x + 3, "[✓]" if checked else "[ ]", 3, mark_attr | curses.A_BOLD)
-            meta = f"{entry.get('workspace') or '—'} · {entry['pane_id']} · 静默 {entry.get('quiet_label') or '刚刚'}"
+            meta = f"{entry.get('workspace') or '—'} · {entry['pane_id']} · {label('静默', 'Quiet')} {entry.get('quiet_label') or label('刚刚', 'just now')}"
             meta = _fit(meta, max(0, box_width - 24))
             title_room = box_width - 11 - _width(meta)
             title = entry.get("title") or entry["pane_id"]
@@ -1099,13 +1100,13 @@ class Board:
             entry = items[row_index]
             bits = [entry.get("reason") or "", entry.get("process") or ""]
             if entry.get("risk") == "agent":
-                bits.append("会关闭该 Agent 会话")
+                bits.append(label("会关闭该 Agent 会话", "Closes this agent session"))
             if entry.get("in_focused_tab"):
-                bits.append("在当前标签页")
+                bits.append(label("在当前标签页", "In current tab"))
             if entry.get("last_in_workspace"):
-                bits.append(f"连带释放 workspace「{entry.get('workspace')}」")
+                bits.append(f"{label('连带释放 workspace', 'Also closes workspace')} '{entry.get('workspace')}'")
             elif entry.get("last_in_tab"):
-                bits.append(f"连带释放标签页「{entry.get('tab')}」")
+                bits.append(f"{label('连带释放标签页', 'Also closes tab')} '{entry.get('tab')}'")
             detail = "↳ " + "  ·  ".join(bit for bit in bits if bit)
             _write(self.stdscr, detail_y, x + 2, detail, box_width - 4, curses.color_pair(P_CARD_WORKING))
         else:
@@ -1113,7 +1114,7 @@ class Board:
                 self.stdscr,
                 detail_y,
                 x + 2,
-                "没有可回收的 pane：活跃 Agent、当前聚焦 pane 和看板自身都会被保护。",
+                label("没有可回收的 pane：活跃 Agent、当前聚焦 pane 和看板自身都会被保护。", "No reclaimable panes: active agents, focused pane and board are protected."),
                 box_width - 4,
                 muted,
             )
@@ -1121,7 +1122,7 @@ class Board:
         if note:
             _write(self.stdscr, detail_y + 1, x + 2, note, box_width - 4, curses.color_pair(P_CARD_BLOCKED) | curses.A_BOLD)
         elif protected:
-            summary_protected = "受保护 " + "  ·  ".join(
+            summary_protected = label("受保护 ", "Protected ") + "  ·  ".join(
                 f"{entry.get('title') or entry['pane_id']}（{entry.get('reason')}）" for entry in protected[:3]
             )
             if len(protected) > 3:
@@ -1132,24 +1133,24 @@ class Board:
         button_y = y + box_height - 2
         cursor = x + 2
         mo_buttons = (
-            (" 磁盘预览 d ", "reclaim-mo-dry", P_SELECT_SETTLED),
-            (" 磁盘清理 D ", "reclaim-mo-run", P_SELECT_WINDOW),
+            (label(" 磁盘预览 d ", " Disk preview d "), "reclaim-mo-dry", P_SELECT_SETTLED),
+            (label(" 磁盘清理 D ", " Disk clean D "), "reclaim-mo-run", P_SELECT_WINDOW),
         )
-        buttons = [(" 全选 A ", "reclaim-all", P_SELECT_WINDOW), (" 清空 N ", "reclaim-none", P_SELECT_WINDOW)]
+        buttons = [(label(" 全选 A ", " Select all A "), "reclaim-all", P_SELECT_WINDOW), (label(" 清空 N ", " Select none N "), "reclaim-none", P_SELECT_WINDOW)]
         if box_width >= 84:
             buttons += list(mo_buttons)
-        for label, name, pair in buttons:
-            _write(self.stdscr, button_y, cursor, label, attr=curses.color_pair(pair) | curses.A_BOLD)
-            self.hit_buttons.append((button_y, button_y, cursor, cursor + _width(label) - 1, name))
-            cursor += _width(label) + 2
+        for button_text, name, pair in buttons:
+            _write(self.stdscr, button_y, cursor, button_text, attr=curses.color_pair(pair) | curses.A_BOLD)
+            self.hit_buttons.append((button_y, button_y, cursor, cursor + _width(button_text) - 1, name))
+            cursor += _width(button_text) + 2
 
-        cancel = " 取消 Esc "
+        cancel = label(" 取消 Esc ", " Cancel Esc ")
         cancel_x = x + box_width - 2 - _width(cancel)
         _write(self.stdscr, button_y, cancel_x, cancel, attr=curses.color_pair(P_CARD_MUTED) | curses.A_BOLD)
         self.hit_buttons.append((button_y, button_y, cancel_x, cancel_x + _width(cancel) - 1, "reclaim-cancel"))
 
         armed = bool(state.get("armed"))
-        apply_label = f" 确认释放 {len(chosen)} 项 ⏎ " if armed else f" 释放选中 {len(chosen)} ⏎ "
+        apply_label = f" {label('确认释放', 'Confirm reclaim')} {len(chosen)} ⏎ " if armed else f" {label('释放选中', 'Reclaim selected')} {len(chosen)} ⏎ "
         apply_attr = curses.color_pair(P_SELECT_BLOCKED if armed else P_SELECT_ACCENT) | curses.A_BOLD
         apply_x = cancel_x - 2 - _width(apply_label)
         if apply_x > cursor:
@@ -1163,9 +1164,9 @@ class Board:
         panel_width = width - margin * 2
         item = self.selected_item()
         _box(self.stdscr, y, margin, height, panel_width, curses.color_pair(P_BORDER))
-        _write(self.stdscr, y, margin + 2, " SELECTED / 当前选中 ", attr=curses.color_pair(P_ACCENT) | curses.A_BOLD)
+        _write(self.stdscr, y, margin + 2, label(" SELECTED / 当前选中 ", " SELECTED "), attr=curses.color_pair(P_ACCENT) | curses.A_BOLD)
         if not item:
-            _write(self.stdscr, y + 2, margin + 2, "当前没有项目", panel_width - 4, curses.color_pair(P_MUTED))
+            _write(self.stdscr, y + 2, margin + 2, label("当前没有项目", "No items"), panel_width - 4, curses.color_pair(P_MUTED))
             return
 
         key = _column_key(item)
@@ -1186,7 +1187,7 @@ class Board:
             curses.color_pair(P_TEXT) | curses.A_BOLD,
         )
 
-        phase = item.get("activity_phase") or "当前进展"
+        phase = item.get("activity_phase") or label("当前进展", "Current activity")
         activity = item.get("activity_title") or ""
         progress = f"▸ {phase}{f' · {_plain(activity)}' if activity else ''}"
         _write(self.stdscr, y + 2, margin + 2, progress, panel_width - 4, curses.color_pair(COLUMN_PAIR[key]) | curses.A_BOLD)
@@ -1196,9 +1197,9 @@ class Board:
         )
         quiet = item.get("quiet_label") or ""
         if quiet:
-            location = f"{location}  ›  静默 {quiet}"
+            location = f"{location}  ›  {label('静默', 'Quiet')} {quiet}"
         _write(self.stdscr, y + 3, margin + 2, location, panel_width - 4, curses.color_pair(P_MUTED))
-        output = item.get("last_output") or item.get("terminal_title") or "暂无最近输出"
+        output = item.get("last_output") or item.get("terminal_title") or label("暂无最近输出", "No recent output")
         preview = _fit(f"↳ {_plain(output)}", panel_width - 4)
         _write(self.stdscr, y + 4, margin + 2, preview, panel_width - 4, curses.color_pair(P_CARD_MUTED))
 
@@ -1230,8 +1231,8 @@ class Board:
         height, width = stdscr.getmaxyx()
         if height < 18 or width < 48:
             _write(stdscr, 1, 2, "HERDR MISSION CONTROL", width - 4, curses.color_pair(P_ACCENT) | curses.A_BOLD)
-            _write(stdscr, 3, 2, "窗口太小，请放大 popup", width - 4, curses.color_pair(P_TEXT))
-            _write(stdscr, height - 2, 2, "Q 退出", width - 4, curses.color_pair(P_MUTED))
+            _write(stdscr, 3, 2, label("窗口太小，请放大 popup", "Window too small; enlarge popup"), width - 4, curses.color_pair(P_TEXT))
+            _write(stdscr, height - 2, 2, label("Q 退出", "Q Quit"), width - 4, curses.color_pair(P_MUTED))
             stdscr.refresh()
             return
 
@@ -1435,7 +1436,7 @@ def main(stdscr: curses.window) -> None:
                 break
         elif key in ("r", "R"):
             board.refresh(force=True)
-            board.flash("数据已刷新")
+            board.flash(label("数据已刷新", "Data refreshed"))
         elif key in ("\n", "\r"):
             if board.jump():
                 break

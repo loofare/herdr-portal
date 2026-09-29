@@ -80,6 +80,10 @@ description = "open web portal"
 
 Finish with `herdr server reload-config` and press **`Ctrl+B` `A`**.
 
+### Board language
+
+The TUI board uses English when Herdr's environment has an English `LANG` or `LC_ALL` (for example `en_US.UTF-8`); otherwise it keeps the existing Chinese UI. Set `HERDR_PORTAL_LANG=en` or `HERDR_PORTAL_LANG=zh` in the Herdr server environment to override detection. Restart Herdr after changing its environment; reloading the config alone does not change the server process environment. The web board is not localized by this setting.
+
 > `prefix` is Herdr's prefix key, `Ctrl+B` by default. If you remapped it, substitute your own prefix — the plugin only cares about the `+a` half.
 
 ## TUI guide

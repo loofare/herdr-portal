@@ -19,14 +19,23 @@ from typing import Any
 
 HERDR_BIN = os.environ.get("HERDR_BIN_PATH", "herdr")
 
+
+def label(zh: str, en: str) -> str:
+    """Select built-in UI copy without changing user-provided titles/output."""
+    locale = os.environ.get("HERDR_PORTAL_LANG") or os.environ.get("LC_ALL") or os.environ.get("LANG", "")
+    return en if locale.lower().startswith("en") else zh
+
+
+ui_label = label  # `rename_target(..., label=...)` retains its existing keyword argument.
+
 STATUS_ORDER = ("blocked", "working", "idle", "done", "unknown")
 
 STATUS_META = {
-    "blocked": {"label": "待确认", "short": "BLOCKED", "tone": "blocked"},
-    "working": {"label": "执行中", "short": "WORKING", "tone": "working"},
-    "idle": {"label": "空闲", "short": "IDLE", "tone": "idle"},
-    "done": {"label": "已完成", "short": "DONE", "tone": "done"},
-    "unknown": {"label": "未知", "short": "UNKNOWN", "tone": "unknown"},
+    "blocked": {"label": label("待确认", "Needs input"), "short": "BLOCKED", "tone": "blocked"},
+    "working": {"label": label("执行中", "Running"), "short": "WORKING", "tone": "working"},
+    "idle": {"label": label("空闲", "Idle"), "short": "IDLE", "tone": "idle"},
+    "done": {"label": label("已完成", "Done"), "short": "DONE", "tone": "done"},
+    "unknown": {"label": label("未知", "Unknown"), "short": "UNKNOWN", "tone": "unknown"},
 }
 
 AGENT_META = {
@@ -70,7 +79,7 @@ SHELL_NAMES = frozenset(
 PORTAL_MARKERS = ("board/tui.py", "board/server.py", "board/daemon.py")
 # 阈值档位：0 = 不限，其余为「静默秒数」。TUI / 网页共用同一组档位。
 CLEANUP_THRESHOLDS = (0, 300, 1800, 7200)
-CLEANUP_THRESHOLD_LABELS = {0: "不限", 300: "5m", 1800: "30m", 7200: "2h"}
+CLEANUP_THRESHOLD_LABELS = {0: label("不限", "Any"), 300: "5m", 1800: "30m", 7200: "2h"}
 DEFAULT_CLEANUP_IDLE = 1800
 
 _activity: dict[str, dict[str, Any]] = {}
@@ -150,7 +159,7 @@ def human_age(ts: float | None, now: float | None = None) -> str:
     now = now or time.time()
     delta = max(0, int(now - ts))
     if delta < 10:
-        return "刚刚"
+        return label("刚刚", "just now")
     if delta < 60:
         return f"{delta}s"
     if delta < 3600:
@@ -208,30 +217,30 @@ def _headline(text: str | None, limit: int = 92) -> str:
 
 
 TOOL_PHASES = {
-    "bash": "执行命令",
-    "eval": "运行代码",
-    "read": "读取文件",
-    "write": "写入文件",
-    "edit": "修改代码",
-    "grep": "检索代码",
-    "find": "查找文件",
-    "ls": "浏览目录",
-    "web_search": "联网检索",
-    "fetch_content": "读取网页",
-    "source_check": "核验信息",
-    "subagent": "调度 Agent",
-    "hub": "调度任务",
-    "ask": "等待确认",
+    "bash": label("执行命令", "Running command"),
+    "eval": label("运行代码", "Running code"),
+    "read": label("读取文件", "Reading file"),
+    "write": label("写入文件", "Writing file"),
+    "edit": label("修改代码", "Editing code"),
+    "grep": label("检索代码", "Searching code"),
+    "find": label("查找文件", "Finding files"),
+    "ls": label("浏览目录", "Browsing directory"),
+    "web_search": label("联网检索", "Searching web"),
+    "fetch_content": label("读取网页", "Reading web page"),
+    "source_check": label("核验信息", "Verifying source"),
+    "subagent": label("调度 Agent", "Delegating agent"),
+    "hub": label("调度任务", "Coordinating task"),
+    "ask": label("等待确认", "Waiting for input"),
 }
 
 
 def _humanize_activity_title(title: str) -> str:
     patterns = (
-        (r"^Waiting for (?:the )?(.+?) to finish$", r"等待 \1 完成"),
-        (r"^Continuing to wait for (?:the )?(.+)$", r"继续等待 \1"),
-        (r"^Wait for (?:the )?(.+)$", r"等待 \1"),
-        (r"^Read (.+)$", r"读取 \1"),
-        (r"^Test (.+)$", r"测试 \1"),
+        (r"^Waiting for (?:the )?(.+?) to finish$", label(r"等待 \1 完成", r"Waiting for \1")),
+        (r"^Continuing to wait for (?:the )?(.+)$", label(r"继续等待 \1", r"Still waiting for \1")),
+        (r"^Wait for (?:the )?(.+)$", label(r"等待 \1", r"Waiting for \1")),
+        (r"^Read (.+)$", label(r"读取 \1", r"Reading \1")),
+        (r"^Test (.+)$", label(r"测试 \1", r"Testing \1")),
     )
     for pattern, replacement in patterns:
         if re.match(pattern, title, flags=re.IGNORECASE):
@@ -253,18 +262,18 @@ def _tool_activity(tool: dict[str, Any], fallback: str = "") -> dict[str, Any]:
         or args.get("reason")
     )
     op = str(args.get("op") or "").lower()
-    phase = TOOL_PHASES.get(name, "调用工具")
+    phase = TOOL_PHASES.get(name, label("调用工具", "Using tool"))
     intent_text = str(intent or "")
     if name == "hub" and (op == "wait" or re.match(r"^(?:Waiting|Continuing to wait|Wait)\b", intent_text, re.IGNORECASE)):
-        phase = "等待子任务"
+        phase = label("等待子任务", "Waiting for task")
     elif name == "hub":
-        phase = "调度子任务"
+        phase = label("调度子任务", "Coordinating task")
     elif name == "subagent":
-        phase = "调度 Agent"
+        phase = label("调度 Agent", "Delegating agent")
 
     title = _headline(str(intent) if intent else "")
     if not title and name in {"read", "write", "edit"} and args.get("path"):
-        action = {"read": "读取", "write": "写入", "edit": "更新"}[name]
+        action = {"read": label("读取", "Reading"), "write": label("写入", "Writing"), "edit": label("更新", "Updating")}[name]
         title = f"{action} {Path(str(args['path'])).name}"
     if not title and fallback:
         title = _headline(fallback)
@@ -272,7 +281,7 @@ def _tool_activity(tool: dict[str, Any], fallback: str = "") -> dict[str, Any]:
         command = re.sub(r"\s+", " ", str(args["command"])).strip()
         title = _headline(command, 76)
     if not title:
-        title = f"正在使用 {name}"
+        title = f"{label('正在使用', 'Using')} {name}"
     title = _humanize_activity_title(title)
     return {"tool": name, "phase": phase, "title": title}
 
@@ -384,15 +393,15 @@ def read_session_extra(session_path: str | None) -> dict[str, Any]:
 
 def classify_window(pane: dict[str, Any]) -> tuple[str, str]:
     title = (pane.get("terminal_title_stripped") or pane.get("terminal_title") or "").lower()
-    label = (pane.get("label") or "").lower()
-    blob = f"{title} {label}"
+    pane_label = (pane.get("label") or "").lower()
+    blob = f"{title} {pane_label}"
     if "ssh " in blob or blob.startswith("ssh"):
         return "ssh", "SSH"
     if any(token in blob for token in ("vim", "nvim", "helix", "emacs")):
-        return "editor", "编辑器"
+        return "editor", label("编辑器", "Editor")
     if any(token in blob for token in ("git", "lazygit", "tig")):
         return "git", "Git"
-    return "shell", "窗口"
+    return "shell", label("窗口", "Terminal")
 
 
 def build_activity(
@@ -404,7 +413,7 @@ def build_activity(
 ) -> dict[str, Any]:
     if not is_agent:
         return {
-            "phase": "窗口活动",
+            "phase": label("窗口活动", "Terminal activity"),
             "title": terminal_title or fallback_title,
             "tool": "terminal",
             "active": False,
@@ -415,23 +424,23 @@ def build_activity(
     headline = extra.get("headline") or ""
     session_title = extra.get("session_title") or ""
     if status == "blocked":
-        phase = "等待确认"
-        title = headline or tool_title or "等待你的输入或授权"
+        phase = label("等待确认", "Waiting for input")
+        title = headline or tool_title or label("等待你的输入或授权", "Waiting for your input or approval")
         active = True
     elif status == "working" and extra.get("tool_pending"):
-        phase = extra.get("tool_phase") or "正在执行"
+        phase = extra.get("tool_phase") or label("正在执行", "Working")
         title = tool_title or headline or session_title or fallback_title
         active = True
     elif status == "working" and extra.get("last_event_kind") == "result":
-        phase = "整理执行结果"
+        phase = label("整理执行结果", "Processing results")
         title = tool_title or headline or session_title or fallback_title
         active = True
     elif status == "working":
-        phase = "生成回复"
+        phase = label("生成回复", "Generating response")
         title = headline or tool_title or session_title or fallback_title
         active = True
     else:
-        phase = "最近完成" if status == "done" else "最近活动"
+        phase = label("最近完成", "Recently finished") if status == "done" else label("最近活动", "Recent activity")
         title = headline or tool_title or session_title or fallback_title
         active = False
 
@@ -463,7 +472,7 @@ def normalize_item(
         agent_label = window_label
         family = window_kind
         column = "window"
-        status_label = "窗口"
+        status_label = label("窗口", "Terminal")
     else:
         meta = AGENT_META.get(agent, {"label": str(agent).upper(), "family": "other"})
         agent_label = meta["label"]
@@ -939,8 +948,8 @@ def _foreground_summary(info: dict[str, Any] | None) -> tuple[list[str], str, bo
         if name:
             names.append(name)
     shell_only = bool(names) and all(name in SHELL_NAMES for name in names)
-    label = " · ".join(dict.fromkeys(names)) if names else "无前台进程"
-    return names, label, shell_only
+    process_label = " · ".join(dict.fromkeys(names)) if names else label("无前台进程", "No foreground process")
+    return names, process_label, shell_only
 
 
 def _is_portal_pane(info: dict[str, Any] | None) -> bool:
@@ -963,18 +972,18 @@ def _reclaim_verdict(
     """(verdict, risk, reason, process_label)；verdict 为 candidate / protected。"""
     _, process_label, shell_only = _foreground_summary(info)
     if item.get("focused") or item.get("pane_id") == focused_pane_id:
-        return "protected", "", "当前聚焦", process_label
+        return "protected", "", label("当前聚焦", "Focused pane"), process_label
     if info is None:
-        return "protected", "", "进程信息不可用", process_label
+        return "protected", "", label("进程信息不可用", "Process info unavailable"), process_label
     if _is_portal_pane(info):
-        return "protected", "", "看板自身", process_label
+        return "protected", "", label("看板自身", "Portal board"), process_label
     if item.get("kind") == "agent":
         if item.get("status") in {"working", "blocked"}:
-            return "protected", "", "Agent 运行中", process_label
-        return "candidate", "agent", "空闲 Agent", process_label
+            return "protected", "", label("Agent 运行中", "Agent running"), process_label
+        return "candidate", "agent", label("空闲 Agent", "Idle agent"), process_label
     if not shell_only:
-        return "protected", "", f"运行中 · {process_label}", process_label
-    return "candidate", "shell", "静止 Shell", process_label
+        return "protected", "", f"{label('运行中', 'Running')} · {process_label}", process_label
+    return "candidate", "shell", label("静止 Shell", "Idle shell"), process_label
 
 
 def cleanup_scan(idle_seconds: int = DEFAULT_CLEANUP_IDLE) -> dict[str, Any]:
@@ -1102,7 +1111,7 @@ def cleanup_apply(pane_ids: list[str], idle_seconds: int = DEFAULT_CLEANUP_IDLE)
 # ---------- 重命名 ----------
 
 RENAME_KINDS = ("pane", "tab", "workspace")
-RENAME_LABELS = {"pane": "Pane 标题", "tab": "Tab 名称", "workspace": "Workspace 名称"}
+RENAME_LABELS = {"pane": label("Pane 标题", "Pane title"), "tab": label("Tab 名称", "Tab name"), "workspace": label("Workspace 名称", "Workspace name")}
 RENAME_MAX = 80
 
 
@@ -1122,7 +1131,7 @@ def rename_target(kind: str, target_id: str, label: str) -> dict[str, Any]:
     label = clean_label(label)
     if not label:
         if kind != "pane":
-            raise ValueError(f"{RENAME_LABELS[kind]}不能为空")
+            raise ValueError(f"{RENAME_LABELS[kind]} {ui_label('不能为空', 'cannot be empty')}")
         run_herdr("pane", "rename", target_id, "--clear")
         return {"kind": kind, "target_id": target_id, "label": "", "cleared": True}
     run_herdr(kind, "rename", target_id, label)
@@ -1212,10 +1221,10 @@ def launch_task(command: list[str], label: str, cwd: str | None = None) -> dict[
 def mo_clean(dry_run: bool = True) -> dict[str, Any]:
     """把全局磁盘清理交给 Mole（mo clean），在新标签页里跑。"""
     if not mo_available():
-        raise RuntimeError(f"未找到 {MO_BIN}（Mole）· https://mole.fit")
+        raise RuntimeError(f"{label('未找到', 'Not found')} {MO_BIN} (Mole) · https://mole.fit")
     command = [MO_BIN, "clean"] + (["--dry-run"] if dry_run else [])
-    label = "mo clean · 预览" if dry_run else "mo clean"
-    result = launch_task(command, label, cwd=str(Path.home()))
+    tab_label = label("mo clean · 预览", "mo clean · preview") if dry_run else "mo clean"
+    result = launch_task(command, tab_label, cwd=str(Path.home()))
     result["dry_run"] = dry_run
     return result
 
@@ -1331,13 +1340,13 @@ def update_plan() -> dict[str, Any]:
         return {
             "mode": "git",
             "command": ["git", "-C", str(PLUGIN_ROOT), "pull", "--ff-only"],
-            "label": "portal 更新 · git pull",
+            "label": label("portal 更新 · git pull", "portal update · git pull"),
             "hint": f"git pull --ff-only · {PLUGIN_ROOT}",
         }
     return {
         "mode": "plugin",
         "command": [HERDR_BIN, "plugin", "install", f"github:{VERSION_REPO}"],
-        "label": "portal 更新 · plugin install",
+        "label": label("portal 更新 · plugin install", "portal update · plugin install"),
         "hint": f"herdr plugin install github:{VERSION_REPO}",
     }
 
